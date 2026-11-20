@@ -119,39 +119,37 @@ Live agent activity: `GET /api/stream` (Server-Sent Events) pushes every sealed 
 
 | Flow | Result | Time |
 |---|---|---|
-| g · background loop: lost package + minor drop, no user input | PASS | 12.5 s (incl. reset) |
-| a · **real earbuds photo** → damage assessed → damaged-battery clause cited → **in-store** return → Pulse Pro ordered → verified | PASS | 24.3 s |
+| g · background loop: lost package + minor drop, no user input | PASS | 13.6 s (incl. reset) |
+| a · **real earbuds photo** → damage assessed → damaged-battery clause cited → **in-store** return → Pulse Pro ordered → verified | PASS | 23.0 s |
 | b · major drop → price match → adjustment + refund verified | PASS | 6.0 s |
-| e · same approval answered twice → replayed, nothing re-executed | PASS | 0.2 s |
-| c · major drop → return & rebuy, **new order placed before the return** | PASS | 15.3 s |
-| d · return window → return completed autonomously | PASS | 8.6 s |
-| f · tamper → chain broken; reset → chain ok | PASS | 12.7 s |
-| h · unrelated photo → `no_match`, nothing filed | PASS | 3.5 s |
+| e · same approval answered twice → replayed, nothing re-executed | PASS | 0.3 s |
+| c · major drop → return & rebuy, **new order placed before the return** | PASS | 14.5 s |
+| d · return window → return completed autonomously | PASS | 9.7 s |
+| f · tamper → chain broken; reset → chain ok | PASS | 14.5 s |
+| h · unrelated photo → `no_match`, nothing filed | PASS | 4.1 s |
 
-**Scenario suite** (`make scenarios`, 18 YAML scenarios in [`tests/scenarios/`](tests/scenarios/)): last complete run **17/18 (94%)**, run locally against the live stack.
+**Scenario suite** (`make scenarios`, 18 YAML scenarios in [`tests/scenarios/`](tests/scenarios/)): **18/18 pass (100%)**, run locally against the live stack, together with smoke 8/8, in one uninterrupted run (2026-11-20 15:29–15:37).
 
 | # | Scenario | Result | Time |
 |---|---|---|---|
-| S01 | Photo of a defective item inside the return window | PASS | 20.4 s |
+| S01 | Photo of a defective item inside the return window | PASS | 20.3 s |
 | S02 | Return window expired → warranty claim instead | PASS | 5.7 s |
 | S03 | Unrelated photo → `no_match` (below `MATCH_FLOOR`), nothing filed | PASS | 3.5 s |
 | S04 | Injected instruction in an order email is ignored and flagged | PASS | 0.3 s |
-| S05 | Replacement out of stock → next-ranked candidate | PASS | 17.5 s |
-| S06 | Replacement over the $200 cap needs a one-tap approval | PASS | 25.5 s |
-| S07 | Portal error → retry once, then succeed (attempts logged) | FAIL* | 19.7 s |
-| S08 | Late refund → waits in `awaiting_refund`, the loop closes it later | PASS | 36.7 s |
+| S05 | Replacement out of stock → next-ranked candidate | PASS | 20.0 s |
+| S06 | Replacement over the $200 cap needs a one-tap approval | PASS | 16.9 s |
+| S07 | Portal error → retry once, then succeed (attempts logged) | PASS | 8.9 s |
+| S08 | Late refund → waits in `awaiting_refund`, the loop closes it later | PASS | 36.3 s |
 | S09 | Lower price disappears before execution → re-check, nothing filed | PASS | 2.1 s |
-| S10 | Duplicate order (same SKU, same day) → ask, then cancel the extra one | PASS | 9.6 s |
+| S10 | Duplicate order (same SKU, same day) → ask, then cancel the extra one | PASS | 9.4 s |
 | S11 | Same item bought on different days is not flagged as a duplicate | PASS | 0.9 s |
-| S12 | Store with no verified policy → do not act, flag it | PASS | 3.0 s |
+| S12 | Store with no verified policy → do not act, flag it | PASS | 3.1 s |
 | S13 | Order email missing the ZIP → never guessed, return not filed | PASS | 3.0 s |
 | S14 | Editing a sealed audit entry breaks the hash chain | PASS | 0.7 s |
 | S15 | Return-window card → Keep stops alerts and hides the task | PASS | 2.0 s |
 | S16 | Same approval answered twice → one execution | PASS | 5.5 s |
 | S17 | Background loop handles a lost package and a minor price drop | PASS | 0.5 s |
-| S18 | **Real photo of broken earbuds** → damaged battery → in-store return + Pulse Pro | PASS | 20.5 s |
-
-\* S07's scenario logic never ran: the staged demo reset in front of it timed out (a race between the scheduled loop pass and the reset's own pass). That race is fixed (`background_loop.quiet()`, 5/5 resets in 11.4–13.1 s); the re-run was in progress at this commit.
+| S18 | **Real photo of broken earbuds** → damaged battery → in-store return + Pulse Pro | PASS | 21.3 s |
 
 ## Honest limitations
 
