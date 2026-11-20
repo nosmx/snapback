@@ -81,7 +81,12 @@ def _normalize(vec: Sequence[float]) -> List[float]:
 class Database:
     def __init__(self) -> None:
         self.backend = "singlestore" if mode("db") == "real" else "sqlite"
-        self._local = threading.local()
+        import queue
+        self._pool: "queue.LifoQueue" = queue.LifoQueue()   # shared connection pool (threads reuse connections)
+        self._pool_lock = threading.Lock()
+        self._pool_size = 0
+        self._pool_max = 6
+        self._db_ready = False
         self._sqlite_lock = threading.RLock()
         self._sqlite: Optional[sqlite3.Connection] = None
         if self.backend == "singlestore":
@@ -89,7 +94,7 @@ class Database:
             last: Optional[Exception] = None
             for attempt in range(3):  # ride out brief network/DNS blips before falling back
                 try:
-                    self._conn()
+                    self._release(self._acquire())
                     last = None
                     break
                 except Exception as e:
@@ -116,21 +121,50 @@ class Database:
         return dict(host=host, port=int(port) if port.isdigit() else 3306, user=user, password=password), dbname
 
     def _conn(self):
-        if self.backend == "sqlite":
-            if self._sqlite is None:
-                DATA_DIR.mkdir(parents=True, exist_ok=True)
-                self._sqlite = sqlite3.connect(str(DATA_DIR / "snapback.db"), check_same_thread=False)
-            return self._sqlite
-        conn = getattr(self._local, "conn", None)
-        if conn is None:
-            import singlestoredb as s2
-            params, dbname = self._singlestore_params()
+        """SQLite connection (the SingleStore path uses the pool via _acquire/_release)."""
+        if self._sqlite is None:
+            DATA_DIR.mkdir(parents=True, exist_ok=True)
+            self._sqlite = sqlite3.connect(str(DATA_DIR / "snapback.db"), check_same_thread=False)
+        return self._sqlite
+
+    def _new_s2(self):
+        import singlestoredb as s2
+        params, dbname = self._singlestore_params()
+        if not self._db_ready:
             conn = s2.connect(**params)
             cur = conn.cursor()
             cur.execute(f"CREATE DATABASE IF NOT EXISTS `{dbname}`")
             cur.execute(f"USE `{dbname}`")
-            self._local.conn = conn
-        return conn
+            self._db_ready = True
+            return conn
+        return s2.connect(**params, database=dbname)
+
+    def _acquire(self):
+        import queue
+        try:
+            return self._pool.get_nowait()
+        except queue.Empty:
+            pass
+        with self._pool_lock:
+            if self._pool_size < self._pool_max:
+                self._pool_size += 1
+                try:
+                    return self._new_s2()
+                except Exception:
+                    self._pool_size -= 1
+                    raise
+        return self._pool.get(timeout=30)
+
+    def _release(self, conn) -> None:
+        self._pool.put(conn)
+
+    def _discard(self, conn) -> None:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        with self._pool_lock:
+            self._pool_size -= 1
 
     # ---------- raw SQL ----------
 
@@ -138,17 +172,26 @@ class Database:
         return sql.replace("%s", "?") if self.backend == "sqlite" else sql
 
     def _s2(self, fn):
-        """Run fn(conn) on SingleStore; if the connection dropped (e.g. the workspace auto-suspended
-        and was resumed), reconnect once and retry."""
+        """Run fn(conn) on a pooled SingleStore connection; if it dropped (e.g. the workspace
+        auto-suspended and was resumed), replace it and retry once."""
+        conn = self._acquire()
         try:
-            return fn(self._conn())
+            out = fn(conn)
+            self._release(conn)
+            return out
         except Exception as e:
             msg = str(e)
             if not any(code in msg for code in ("2003", "2006", "2013", "Lost connection", "gone away", "closed")):
+                self._release(conn)
                 raise
             log.warning("SingleStore connection lost (%s); reconnecting", msg[:120])
-            self._local.conn = None
-            return fn(self._conn())
+            self._discard(conn)
+            conn = self._acquire()
+            try:
+                out = fn(conn)
+            finally:
+                self._release(conn)
+            return out
 
     def execute(self, sql: str, params: Iterable[Any] = ()) -> int:
         if self.backend == "sqlite":
@@ -229,6 +272,20 @@ class Database:
                 placeholders.append("%s")
         verb = "REPLACE" if replace else "INSERT"
         self.execute(f"{verb} INTO {table} ({', '.join(cols)}) VALUES ({', '.join(placeholders)})", vals)
+
+    def insert_many(self, table: str, rows: List[Dict[str, Any]]) -> None:
+        """One multi-row INSERT (one round trip to SingleStore instead of one per row)."""
+        if not rows:
+            return
+        cols = list(rows[0].keys())
+        vecs = VECTOR_COLS.get(table, {})
+        params: List[Any] = []
+        for r in rows:
+            for c in cols:
+                v = r.get(c)
+                params.append(json.dumps(_normalize(v)) if (c in vecs and v is not None) else (None if c in vecs else _to_db(c, v)))
+        one = "(" + ", ".join(["%s"] * len(cols)) + ")"
+        self.execute(f"INSERT INTO {table} ({', '.join(cols)}) VALUES " + ", ".join([one] * len(rows)), params)
 
     def upsert(self, table: str, row: Dict[str, Any]) -> None:
         self.insert(table, row, replace=True)

@@ -1,0 +1,13 @@
+id: S06
+name: Replacement over the $200 cap needs a one-tap approval
+steps:
+  - chat: "The Basecamp tent broke, a pole snapped on the first trip"
+  - wait: {status: [awaiting_user, failed, done], timeout: 45}
+  - answer: {option: buy}
+  - wait: {status: [done, failed], timeout: 30}
+expect:
+  status: done
+  rule_failed: mandate.require_approval_over_usd
+  step_order: [return_filed, replacement_ranked, user_notified, user_approved, order_placed]
+  decision_contains: {order_placed: "Basecamp"}
+max_seconds: 60

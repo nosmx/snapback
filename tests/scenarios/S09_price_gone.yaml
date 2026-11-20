@@ -1,0 +1,11 @@
+id: S09
+name: Lower price disappears before execution -> re-check, nothing filed
+steps:
+  - merchant: {path: /admin/price, data: {sku: JNH-VORTEX-BL, price: 119}}
+  - answer: {card: price, option: price_match}
+  - wait: {status: [expired, failed, done], timeout: 20}
+expect:
+  status: expired
+  rule_failed: price_still_lower
+  steps_include: [user_approved, price_rechecked]
+  steps_exclude: [adjustment_filed, order_placed]

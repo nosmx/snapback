@@ -104,6 +104,32 @@ def append(task_id: Optional[str], step: str, *, inputs: Any = None, sources: Op
     return entry
 
 
+def append_many(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    """Append several entries in one round trip (seed path). Same hashing as append()."""
+    if not items:
+        return []
+    with _lock:
+        head = _head()
+        seq, prev = int(head["seq"]), head["entry_hash"]
+        out = []
+        for it in items:
+            seq += 1
+            cost = it.get("cost_usd")
+            entry = {
+                "seq": seq, "task_id": it.get("task_id"), "step": it["step"],
+                "inputs": _canon(it.get("inputs") or {}), "sources": _canon(it.get("sources") or []),
+                "decision": it.get("decision", ""), "rejected_options": _canon(it.get("rejected_options") or []),
+                "rules_checked": _canon(it.get("rules_checked") or []), "authorized_by": it.get("authorized_by", ""),
+                "model": it.get("model", ""), "cost_usd": None if cost is None else float(_norm_cost(cost)),
+                "latency_ms": it.get("latency_ms"), "verified": it.get("verified"), "created_at": clock.iso(clock.now()),
+            }
+            entry["prev_hash"] = prev
+            entry["entry_hash"] = prev = compute_hash(prev, entry)
+            out.append(entry)
+        db().insert_many("audit_log", out)
+    return out
+
+
 def verify_chain() -> Dict[str, Any]:
     rows = db().select("audit_log", order_by="seq ASC")
     prev = GENESIS

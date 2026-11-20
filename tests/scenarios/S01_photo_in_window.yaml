@@ -1,0 +1,13 @@
+id: S01
+name: Photo of a defective item inside the return window
+steps:
+  - photo: mock/photos/demo_broken_headphones.png
+  - wait: {status: [done, failed], timeout: 45}
+expect:
+  status: done
+  decision: return_and_replace
+  step_order: [order_matched, policy_retrieved, decision_made, return_filed, order_placed, refund_received]
+  decision_contains: {order_matched: "NWA-10421", replacement_ranked: "Arc ANC 2"}
+  rule_failed: mandate.replacement.poor_review_threshold
+  chain_ok: true
+max_seconds: 30

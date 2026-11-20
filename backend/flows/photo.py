@@ -101,6 +101,11 @@ def run(tid: str, path: str, filename: str) -> None:
            rules_checked=checks, authorized_by="mandate:auto_return_defective",
            model=ext.get("model") or "", track={"store": order["store"], "confidence": pct})
 
+    after_match(tid, order, mandate)
+
+
+def after_match(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> None:
+    """Policy (Senso) -> rules -> act. Shared by the photo flow, the top-3 card and the chat trigger."""
     # ---- policy + reviews (Senso) ----
     facts, summary_cite, smeta = senso.policy_summary(order["store"])
     clause_res, _ = senso.query("returns defective items return window refund", store=order["store"]) if facts else ({}, None)
@@ -156,9 +161,15 @@ def _return_and_replace(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]
     chosen = r["chosen"]
     sources = O.senso_source(r.get("review_cite"))
     if not chosen:
-        O.step(tid, "replacement_ranked", "No replacement fits your limits", reason="Every candidate broke a spending limit or had poor reviews.",
+        ask = r.get("ask")
+        O.step(tid, "replacement_ranked",
+               f"Needs your OK: {ask['name']} · ${float(ask['price']):.2f} is over your limits" if ask else "No replacement fits your limits",
+               reason=("The best replacement costs more than your mandate allows, so buying it needs your one-tap approval."
+                       if ask else "Every candidate was out of stock, broke a spending limit or had poor reviews."),
                inputs={"candidates": r["candidates"], "statsig": r["statsig"]}, sources=sources, rejected=r["rejected"],
                rules_checked=r["rules"], authorized_by="mandate:replacement", model=r["model"])
+        if ask:
+            return _ask_over_cap(tid, order, ret, ask, mandate)
     else:
         same = chosen.get("sku") == order.get("sku")
         O.step(tid, "replacement_ranked", f"Chose {chosen['name']} · ${float(chosen['price']):.2f} · ★{chosen['rating']}",
@@ -195,6 +206,29 @@ def _return_and_replace(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]
     O.await_refund(tid, ret["rma"], ret["refund_amount"], outcome)
 
 
+def _ask_over_cap(tid: str, order: Dict[str, Any], ret: Dict[str, Any], c: Dict[str, Any], mandate: Dict[str, Any]) -> None:
+    """Return is done; the replacement is over the mandate's limits -> one-tap card (§5.6)."""
+    O.verify_email(tid, "rma", ret["rma"], f"Return {ret['rma']}")
+    txn = verifier.find_refund(ret["rma"], timeout_s=settings.await_refund_seconds)
+    if txn:
+        O.step(tid, "refund_received", f"{rules.money(txn['amount'])} posted to original payment",
+               reason="The bank ledger shows the refund for the return.", sources=[verifier.bank_source(txn)],
+               authorized_by="verifier", verified=True)
+    cap = float(mandate.get("require_approval_over_usd", 200))
+    opts = [{"id": "buy", "label": f"Buy {c['name']}", "action": "execute", "net_savings_usd": None,
+             "detail": f"${float(c['price']):.2f} · ★{c['rating']} · over your ${cap:.0f} auto-buy limit"},
+            {"id": "skip", "label": "Skip the replacement", "action": "dismiss", "detail": "Just keep the refund"}]
+    aid = O.create_approval(tid, f"Your {order['item_name']} return is done. Buy {c['name']} (${float(c['price']):.2f}) as a replacement?",
+                            opts, "buy")
+    O.step(tid, "user_notified", f"Asked you before spending ${float(c['price']):.2f}",
+           reason="Purchases over your auto-buy limit always need a Persona-verified tap.",
+           inputs={"approval_id": aid, "sku": c["sku"]}, authorized_by="mandate:require_approval_over_usd")
+    O.update_task(tid, status="awaiting_user", decision="return_done_replacement_needs_ok", over_cap_sku=c["sku"],
+                  amount_usd=txn["amount"] if txn else ret["refund_amount"],
+                  outcome=(f"{rules.money(txn['amount'])} refunded" if txn else None),
+                  summary=f"Return done · replacement {c['name']} needs your OK")
+
+
 def _warranty(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> None:
     key = f"warranty:{order['order_id']}"
     O.update_task(tid, status="executing", summary="Filing a warranty claim…")
@@ -203,10 +237,12 @@ def _warranty(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> None:
                                            verified_by=f"persona:{mandate.get('_persona_inquiry_id')}")
     if not res.get("ok"):
         return O.fail(tid, f"Warranty claim rejected: {res.get('error')}", authorized_by="mandate:auto_return_defective")
+    clause_res, _ = senso.query("warranty defects materials workmanship claim replacement", store=order["store"])
+    clause = next((c for c in clause_res.get("citations", []) if "warrant" in c["section"].lower()), None)
     O.step(tid, "claim_filed", f"Warranty claim {res['claim_id']} filed · replacement ships by {res['ship_by']}",
            reason="The store's warranty covers the defect, so Snapback filed the claim through its support endpoint.",
-           inputs={"claim_id": res["claim_id"], "idempotency_key": key}, authorized_by="mandate:auto_return_defective",
-           model="merchant-api", track={"store": order["store"]})
+           inputs={"claim_id": res["claim_id"], "idempotency_key": key}, sources=O.senso_source(clause),
+           authorized_by="mandate:auto_return_defective", model="merchant-api", track={"store": order["store"]})
     O.set_order_status(order["order_id"], "claimed")
     e = O.verify_email(tid, "claim_id", res["claim_id"], f"Warranty claim {res['claim_id']}")
     if e:
@@ -244,18 +280,32 @@ def _photo_answer(tid: str, aid: str, opt: Dict[str, Any]) -> None:
     t = O.get_task(tid) or {}
     mandate = rules.load_mandate()
     if opt["action"] != "execute":
-        O.update_task(tid, decision="ignored", status="done", summary="You dismissed this")
+        if (t.get("details") or {}).get("over_cap_sku"):
+            O.update_task(tid, status="done", summary="Return done · you skipped the replacement")
+        else:
+            O.update_task(tid, decision="ignored", status="done", summary="You dismissed this")
         return
     if opt["id"] == "buy" and t.get("order_id"):
         order = db().get("orders", "order_id", t["order_id"])
-        r = replacement.rank(order, mandate)
-        c = r["chosen"]
+        sku = (t.get("details") or {}).get("over_cap_sku")
+        if sku:
+            row = db().get("catalog", "sku", sku)
+            info = merchant_api.current_price(row["store"], sku) or {}
+            c = {**row, "price": float(info.get("price", row["price"]))}
+        else:
+            c = replacement.rank(order, mandate)["chosen"]
         buy = checkout.place_order(c["store"], c["sku"], order.get("ship_zip") or "", idempotency_key=f"buy:{tid}",
                                    verified_by=f"approval:{aid}", max_price=float(c["price"]))
         if buy["ok"]:
-            O.step(tid, "order_placed", f"Ordered {c['name']} · {buy['order_no']}", authorized_by=f"approval:{aid}", model="playwright")
+            O.step(tid, "order_placed", f"Ordered {c['name']} · {buy['order_no']} · ${buy['charged']:.2f}",
+                   reason="You approved the purchase with one tap.", inputs={"order_no": buy["order_no"], "sku": c["sku"]},
+                   authorized_by=f"approval:{aid}", model="playwright")
             O.verify_email(tid, "order_no", buy["order_no"], f"Order {buy['order_no']}")
-            O.update_task(tid, status="done", outcome=f"{c['name']} ordered", decision="buy_fix")
+            prev = (t.get("details") or {}).get("outcome")
+            O.update_task(tid, status="done", outcome=(f"{prev} · " if prev else "") + f"{c['name']} ordered",
+                          decision=t.get("decision") if sku else "buy_fix")
+        else:
+            O.fail(tid, f"Purchase failed: {buy.get('error')}", authorized_by=f"approval:{aid}")
         return
     # the user picked the matching order from the top-3 card: continue the normal flow from the match
     order = db().get("orders", "order_id", opt["id"])
@@ -263,21 +313,4 @@ def _photo_answer(tid: str, aid: str, opt: Dict[str, Any]) -> None:
         O.step(tid, "order_matched", f"Matched {order['item_name']} · {order['order_id']} · picked by you",
                reason="You confirmed which order is in the photo.", sources=[O.email_source_for_order(order)],
                authorized_by=f"approval:{aid}")
-        _continue_after_match(tid, order, mandate)
-
-
-def _continue_after_match(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> None:
-    facts, cite, smeta = senso.policy_summary(order["store"])
-    O.step(tid, "policy_retrieved", "Store policy retrieved" if facts else "No verified policy",
-           sources=O.senso_source(cite), rules_checked=[rules.verified_policy(facts, order["store"])],
-           authorized_by="mandate:auto_return_defective", model=model_label(smeta, "senso:search/context"))
-    d = rules.decide_defect(order, facts, mandate)
-    O.step(tid, "decision_made", d["decision"].replace("_", " "), rules_checked=d["rules"], rejected=d["rejected"],
-           authorized_by=d["authorized_by"])
-    O.update_task(tid, decision=d["decision"], order_id=order["order_id"])
-    if d["decision"] == "return_and_replace":
-        _return_and_replace(tid, order, mandate)
-    elif d["decision"] == "warranty_claim":
-        _warranty(tid, order, mandate)
-    else:
-        O.update_task(tid, status="failed", summary="Snapback did not act")
+        after_match(tid, order, mandate)

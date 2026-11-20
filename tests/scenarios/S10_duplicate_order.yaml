@@ -1,0 +1,12 @@
+id: S10
+name: Duplicate order (same SKU, same day) -> ask, then cancel the extra one
+steps:
+  - checkout: {store: kestrel-outdoors, sku: KSO-MERINO-BN}
+  - checkout: {store: kestrel-outdoors, sku: KSO-MERINO-BN}
+  - loop: true
+  - wait_trigger: {trigger_type: duplicate, status: [awaiting_user]}
+  - answer: {option: cancel_extra}
+  - wait: {status: [done, failed], timeout: 30}
+expect:
+  status: done
+  steps_include: [task_detected, user_notified, user_approved, claim_filed, verified, refund_received]

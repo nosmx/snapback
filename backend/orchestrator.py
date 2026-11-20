@@ -165,7 +165,7 @@ def serialize_approval(a: Dict[str, Any]) -> Dict[str, Any]:
     return out
 
 
-def answer_approval(aid: str, option_id: str) -> Optional[Dict[str, Any]]:
+def answer_approval(aid: str, option_id: str, client_inquiry_id: Optional[str] = None) -> Optional[Dict[str, Any]]:
     """Idempotent: a second answer returns the first result and never re-executes."""
     with _answer_lock:
         a = db().get("approvals", "approval_id", aid)
@@ -180,27 +180,37 @@ def answer_approval(aid: str, option_id: str) -> Optional[Dict[str, Any]]:
             raise ValueError(f"unknown option {option_id}")
         action = opt.get("action", "execute")
         inquiry_id, verified, pmeta = None, None, {"mode": "none", "provider": "persona"}
+        persona_rule = None
         if action == "execute":
-            inq, pmeta = persona.start_inquiry(reference_id=aid, purpose="approval")
-            inquiry_id = inq["inquiry_id"]
-            verified, _ = persona.is_verified(inquiry_id)
-            if not verified:
-                step(a["task_id"], "user_approved", "Persona verification failed: not executed",
-                     reason="The approval could not be verified as the account holder, so nothing was executed.",
+            if client_inquiry_id:   # the frontend ran Persona's embedded flow and passes the inquiry back
+                inquiry_id = client_inquiry_id
+                pmeta = {"mode": "real" if not inquiry_id.startswith("inq_mock_") else "mock", "provider": "persona"}
+            else:                   # create the inquiry server-side (sandbox) and record it
+                inq, pmeta = persona.start_inquiry(reference_id=aid, purpose="approval")
+                inquiry_id = inq["inquiry_id"]
+            verified, vmeta = persona.is_verified(inquiry_id)
+            st = vmeta.get("status") or ("approved" if verified else "unknown")
+            persona_rule = rules.check("persona_verified" if verified else "persona_inquiry_created",
+                                       verified or not settings.persona_require_completed,
+                                       f"{inquiry_id} status '{st}'" + ("" if verified else " (embedded flow not completed yet)"))
+            if not verified and settings.persona_require_completed:
+                step(a["task_id"], "user_approved", "Persona verification not completed: not executed",
+                     reason="Executing requires a completed Persona verification, so nothing was executed.",
                      inputs={"approval_id": aid, "option_id": option_id}, sources=[persona_source(inquiry_id)],
-                     rules_checked=[rules.check("persona_verified", False, inquiry_id)], authorized_by="user",
-                     model=model_label(pmeta, "persona"), verified=False)
+                     rules_checked=[persona_rule], authorized_by="user", model=model_label(pmeta, "persona"), verified=False)
                 return {"task_id": a["task_id"], "status": t.get("status"), "persona_inquiry_id": inquiry_id, "verified": False}
         db().update("approvals", "approval_id", aid, {"choice": option_id, "persona_inquiry_id": inquiry_id,
                                                       "answered_at": clock.now()})
         authorized = f"approval:{aid}" if action == "execute" else "user"
         step(a["task_id"], "user_approved",
-             f"User chose: {opt['label']}" + (" · verified by Persona" if verified else ""),
+             f"User chose: {opt['label']}" + (" · verified by Persona" if verified else
+                                                (f" · Persona inquiry {inquiry_id}" if inquiry_id else "")),
              reason=(f"The account holder picked “{opt['label']}” with one tap"
-                     + (" and Persona confirmed it was them." if verified else ".")),
+                     + (" and Persona confirmed it was them." if verified else
+                        (" and a Persona inquiry was opened for it." if inquiry_id else "."))),
              inputs={"approval_id": aid, "option_id": option_id, "persona_inquiry_id": inquiry_id},
              sources=[persona_source(inquiry_id)] if inquiry_id else [],
-             rules_checked=[rules.check("persona_verified", True, inquiry_id)] if verified else [],
+             rules_checked=[persona_rule] if persona_rule else [],
              authorized_by=authorized, model=model_label(pmeta, "persona") if inquiry_id else "",
              verified=verified, track={"option": option_id, "trigger": t.get("trigger_type")})
         status = "executing" if action == "execute" else t.get("status")
@@ -221,6 +231,14 @@ def execute_return(tid: str, order: Dict[str, Any], reason_code: str, authorized
                    verified_by: str = "") -> Optional[Dict[str, Any]]:
     """Browser agent files the return; verifier confirms the email; reminder added. Returns the return record."""
     key = f"return:{order['order_id']}"
+    if not order.get("ship_zip"):
+        step(tid, "return_filed", "Not filed: the order email has no shipping ZIP",
+             reason="The returns portal needs the shipping ZIP and the email didn't include one; Snapback never guesses missing values.",
+             inputs={"order_id": order["order_id"], "gaps": (order.get("extraction") or {}).get("gaps")},
+             rules_checked=[rules.check("never_invent_missing_fields", True, "ship_zip missing from the order email; not guessed")],
+             authorized_by=authorized_by, verified=False)
+        update_task(tid, status="failed", summary="Needs your shipping ZIP to file the return (it wasn't in the order email)")
+        return None
     update_task(tid, status="executing", summary=f"Filing the return for {order['item_name']} on the store's portal…")
     res = returns_portal.file_return(order["store"], order["order_id"], order.get("ship_zip") or "", reason_code,
                                      idempotency_key=key, verified_by=verified_by)
@@ -259,12 +277,12 @@ def verify_email(tid: str, meta_key: str, value: str, what: str) -> Optional[Dic
     return e
 
 
-def await_refund(tid: str, ref: str, amount: float, outcome: str, wait_s: float = 40) -> bool:
+def await_refund(tid: str, ref: str, amount: float, outcome: str, wait_s: Optional[float] = None) -> bool:
     """Task closes only when the refund posts in the bank ledger. If it hasn't yet, the background
     loop keeps checking tasks in `awaiting_refund`."""
     update_task(tid, status="awaiting_refund", refund_ref=ref, refund_expected=amount, pending_outcome=outcome,
                 summary=f"Waiting for {rules.money(amount)} to post to your original payment method…")
-    txn = verifier.find_refund(ref, timeout_s=wait_s)
+    txn = verifier.find_refund(ref, timeout_s=settings.await_refund_seconds if wait_s is None else wait_s)
     if not txn:
         return False
     close_refund(tid, txn, outcome)

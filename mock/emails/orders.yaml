@@ -89,7 +89,7 @@ orders:
     carrier_status: delivered
 
   - id: e08a
-    scenario: duplicate order (same SKU, same day) - first
+    scenario: first bottle (see e08b)
     store: kestrel-outdoors
     order_no: KSO-77301
     sku: KSO-TRAIL-BTL
@@ -100,13 +100,13 @@ orders:
     carrier_status: delivered
 
   - id: e08b
-    scenario: duplicate order (same SKU, same day) - second
+    scenario: repeat purchase of the same bottle on a DIFFERENT day (must NOT be flagged as a duplicate)
     store: kestrel-outdoors
     order_no: KSO-77302
     sku: KSO-TRAIL-BTL
     price: 28.00
-    ordered_days_ago: 5
-    delivered_days_ago: 3
+    ordered_days_ago: 4
+    delivered_days_ago: 2
     tracking: KSO4T81545
     carrier_status: delivered
 
@@ -167,6 +167,17 @@ orders:
     tracking: JNH9X29870
     carrier_status: delivered
 
+  - id: e15
+    scenario: 14-month-old blender, chat "my old Vortex Pro blender died" -> warranty claim (demo staging)
+    store: juniper-home
+    order_no: JNH-49310
+    sku: JNH-VORTEX-PRO
+    price: 159.00
+    ordered_days_ago: 430
+    delivered_days_ago: 426
+    tracking: JNH9X08812
+    carrier_status: delivered
+
   - id: e14
     scenario: second headphones (photo distractor); past return window, under warranty
     store: northwind-audio
@@ -179,6 +190,8 @@ orders:
     carrier_status: delivered
 
 # Demo staging applied by `make reset` (and the "Stage demo" button on /admin).
+# POST /api/demo/reset also sends this chat message so the warranty flow runs for real:
+demo_chat: "My old Vortex Pro blender just died, it won't turn on anymore"
 demo_staging:
   prices:
     JNH-POUR-KTL: 49.99     # minor drop (9%, $5) -> auto adjustment

@@ -1,0 +1,10 @@
+id: S03
+name: Ambiguous photo match -> top-3 tap as the last resort
+steps:
+  - photo: tests/scenarios/fixtures/unrelated_photo.png
+  - wait: {status: [awaiting_user, failed], timeout: 20}
+expect:
+  status: awaiting_user
+  rule_failed: match.margin
+  steps_include: [photo_identified, user_notified]
+  steps_exclude: [order_matched, return_filed]

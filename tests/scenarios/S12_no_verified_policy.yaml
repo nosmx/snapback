@@ -1,0 +1,10 @@
+id: S12
+name: Store with no verified policy -> do not act, flag it
+steps:
+  - chat: "My brass desk lamp broke, the switch snapped off"
+  - wait: {status: [failed, done], timeout: 30}
+expect:
+  status: failed
+  decision: do_not_act
+  rule_failed: verified_policy
+  steps_exclude: [return_filed, claim_filed, order_placed]

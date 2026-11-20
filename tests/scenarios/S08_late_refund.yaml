@@ -1,0 +1,14 @@
+id: S08
+name: Late refund -> task waits in awaiting_refund, the loop closes it later
+setup:
+  - merchant: {path: /admin/refund-delay, data: {seconds: 26}}
+steps:
+  - answer: {card: deadline, option: return}
+  - wait: {status: [awaiting_refund], timeout: 30}
+  - sleep: 12
+  - loop: true
+  - wait: {status: [done], timeout: 10}
+expect:
+  status: done
+  steps_include: [return_filed, refund_received]
+max_seconds: 70

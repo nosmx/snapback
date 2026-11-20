@@ -1,0 +1,6 @@
+id: S14
+name: Editing a sealed audit entry breaks the hash chain
+steps:
+  - trigger: {kind: tamper}
+expect:
+  chain_ok: false

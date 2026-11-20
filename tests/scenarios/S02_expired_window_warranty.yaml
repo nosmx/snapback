@@ -1,0 +1,12 @@
+id: S02
+name: Return window expired -> warranty claim instead
+steps:
+  - chat: "My studio monitor headphones broke, the left side is dead"
+  - wait: {status: [done, failed], timeout: 30}
+expect:
+  status: done
+  decision: warranty_claim
+  rule_failed: policy.return_window
+  rule_passed: policy.warranty
+  steps_include: [claim_filed, verified]
+  steps_exclude: [return_filed]

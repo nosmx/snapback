@@ -45,6 +45,7 @@ class Settings(BaseSettings):
     persona_template_id_mandate: str = ""
     persona_template_id_approval: str = ""
     persona_mode: str = "auto"
+    persona_require_completed: bool = False   # True: execute only after the embedded flow completes
 
     # Amplitude / Statsig
     amplitude_api_key: str = ""
@@ -61,6 +62,9 @@ class Settings(BaseSettings):
     photo_match_threshold: float = 0.80
     playwright_headless: bool = False
     refund_delay_seconds: int = 10
+    await_refund_seconds: int = 20      # how long a flow waits for the refund before handing off to the loop
+    playwright_slow_mo_ms: int = 150    # visible but quick browser actions on stage
+    firedrill_api_key: str = ""
 
 
 settings = Settings()

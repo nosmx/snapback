@@ -11,9 +11,10 @@ import time
 from typing import Any, Dict, Optional, Tuple
 
 from backend import orchestrator as O
+from backend.ingest import ingest_new_emails
 from backend import rules
 from backend.config import DATA_DIR, settings
-from backend.flows import missing_package, price_drop, return_window
+from backend.flows import duplicate, missing_package, price_drop, return_window
 from backend.integrations import senso
 from backend.integrations.singlestore import db
 
@@ -35,10 +36,19 @@ def screening_facts(store: str, ttl_s: float = 600) -> Optional[Dict[str, Any]]:
 
 
 def run_once() -> Dict[str, int]:
-    stats = {"tasks": 0, "refunds_closed": 0}
+    stats = {"tasks": 0, "refunds_closed": 0, "new_orders": 0}
     with LOOP_LOCK:
+        try:
+            stats["new_orders"] = len(ingest_new_emails())   # e.g. confirmations of purchases
+        except Exception as e:
+            log.warning("loop: email ingestion: %s", e)
         mandate = rules.load_mandate()
-        for o in db().select("orders"):
+        orders = db().select("orders")
+        try:
+            stats["tasks"] += len([t for t in duplicate.detect_all(orders, mandate) if t])
+        except Exception as e:
+            log.warning("loop: duplicates: %s", e)
+        for o in orders:
             try:
                 for tid in (price_drop.detect(o, mandate),
                             return_window.detect(o, mandate, screening_facts(o["store"]) if o.get("store") else None),

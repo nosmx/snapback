@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from typing import Any, Dict, List, Optional
 
 import httpx
@@ -13,7 +14,7 @@ from pydantic import BaseModel
 from backend import audit, clock
 from backend import orchestrator as O
 from backend.config import DATA_DIR, MOCK_DIR, integration_modes, settings
-from backend.flows import missing_package, photo, price_drop, return_window  # noqa: F401  (registers approval handlers)
+from backend.flows import chat, duplicate, missing_package, photo, price_drop, return_window  # noqa: F401  (registers approval handlers)
 from backend.integrations.singlestore import COLUMNS, db
 from backend.triggers import background_loop
 
@@ -113,12 +114,13 @@ def approvals(pending: bool = False, task_id: Optional[str] = None):
 
 class Answer(BaseModel):
     option_id: str
+    persona_inquiry_id: Optional[str] = None   # set when the frontend ran Persona's embedded flow first
 
 
 @app.post("/api/approvals/{approval_id}/answer")
 def answer(approval_id: str, body: Answer):
     try:
-        res = O.answer_approval(approval_id, body.option_id)
+        res = O.answer_approval(approval_id, body.option_id, body.persona_inquiry_id)
     except ValueError as e:
         raise HTTPException(400, str(e))
     if res is None:
@@ -156,6 +158,24 @@ async def upload_photo(file: UploadFile = File(...)):
     return {"task_id": photo.start(content, file.filename or "photo.png")}
 
 
+class ChatMessage(BaseModel):
+    message: str
+
+
+@app.post("/api/chat")
+def chat_message(body: ChatMessage):
+    if not body.message.strip():
+        raise HTTPException(400, "empty message")
+    return {"task_id": chat.start(body.message.strip())}
+
+
+@app.get("/api/persona/config")
+def persona_config():
+    """What the frontend needs to launch Persona's embedded flow (sandbox)."""
+    from backend.integrations import persona as P
+    return P.client_config()
+
+
 @app.post("/api/loop/run")
 def loop_run():
     return background_loop.run_once()
@@ -165,15 +185,56 @@ def loop_run():
 
 class Trigger(BaseModel):
     kind: str
+    price: Optional[float] = None   # major_price_drop: new price (default $89); a new price level -> a new card
+
+
+STAGED = ("price_drop_minor", "missing_package", "chat")
 
 
 @app.post("/api/demo/reset")
-def demo_reset(stage: bool = True):
+def demo_reset(stage: bool = True, wait_s: float = 19.0):
+    """Reset the world and re-seed, then stage the demo by RUNNING the real flows: the background
+    loop (minor price drop -> adjustment, lost package -> claim, major drop card, return-window card)
+    and a chat message ("my old Vortex Pro blender died" -> warranty claim). Returns once the three
+    autonomous tasks are done and both cards are pending (or after wait_s)."""
+    import yaml
+    from concurrent.futures import ThreadPoolExecutor
     from scripts.seed import reset_all
+    from backend.integrations import senso
+    t0 = time.time()
+    # Warm the cited Senso lookups the staged flows use, in parallel with the seed (the results keep
+    # their own retrieved_at; identical queries within 120 s reuse them).
+    warm = ThreadPoolExecutor(max_workers=8)
+    for store in ("northwind-audio", "juniper-home", "kestrel-outdoors", "larkspur-supply"):
+        warm.submit(senso.policy_summary, store)
+    for q, store in (("price adjustment price drop refund the difference", "juniper-home"),
+                     ("returns defective items return window refund", "juniper-home"),
+                     ("warranty defects materials workmanship claim replacement", "juniper-home"),
+                     ("return window unworn items refund return shipping", "kestrel-outdoors"),
+                     ("returns defective items return window refund", "northwind-audio")):
+        warm.submit(senso.query, q, store)
     with background_loop.LOOP_LOCK:
         out = reset_all(stage=stage)
-    O.run_async(background_loop.run_once)   # autonomous actions start right away ("while you were away")
-    return {"ok": True, **{k: v for k, v in out.items() if k in ("orders", "catalog", "audit_chain", "db_backend")}}
+    seeded_s = round(time.time() - t0, 1)
+    if not stage:
+        return {"ok": True, "seconds": seeded_s, **{k: out[k] for k in ("orders", "catalog", "audit_chain", "db_backend")}}
+    msg = yaml.safe_load((MOCK_DIR / "emails" / "orders.yaml").read_text()).get("demo_chat")
+    if msg:
+        chat.start(msg)                      # runs in parallel with the loop pass
+    background_loop.run_once()
+    warm.shutdown(wait=False)
+    done, pending = [], []
+    while time.time() - t0 < wait_s:
+        tasks = db().select("tasks")
+        done = [t for t in tasks if t["trigger_type"] in STAGED and t["status"] == "done"]
+        pending = [a for a in db().select("approvals") if not a.get("choice")]
+        if len(done) >= 3 and len(pending) >= 2:
+            break
+        time.sleep(0.4)
+    return {"ok": len(done) >= 3 and len(pending) >= 2, "seconds": round(time.time() - t0, 1), "seed_seconds": seeded_s,
+            "completed": [{"task_id": t["task_id"], "trigger_type": t["trigger_type"], "outcome": (t.get("details") or {}).get("outcome")} for t in done],
+            "pending_approvals": len(pending), "audit_chain": audit.verify_chain(),
+            **{k: out[k] for k in ("orders", "catalog", "db_backend")}}
 
 
 @app.post("/api/demo/trigger")
@@ -181,7 +242,7 @@ def demo_trigger(body: Trigger):
     from backend import rules
     m = rules.load_mandate()
     if body.kind == "major_price_drop":
-        httpx.post(f"{settings.merchant_base_url}/admin/price", data={"sku": "JNH-VORTEX-BL", "price": "89"}, timeout=10)
+        httpx.post(f"{settings.merchant_base_url}/admin/price", data={"sku": "JNH-VORTEX-BL", "price": str(body.price or 89)}, timeout=10)
         o = db().get("orders", "order_id", "JNH-58213")
         return {"ok": True, "task_id": price_drop.detect(o, m) if o else None}
     if body.kind == "return_window":

@@ -25,5 +25,21 @@ Conflicts between `generalcontext.md` and sponsor docs, plus build decisions. Sp
   - Registry of ingested docs: `data/senso_docs.json` (idempotent re-runs).
 - **Amplitude** HTTP V2 `https://api2.amplitude.com/2/httpapi`. The US endpoint accepts our key (`events_ingested: 1`).
 
+## Demo-proofing decisions (block 3)
+- **Photo matching is margin-based** (top1 − top2 ≥ 0.04): SigLIP cosine scores sit around 0.4–0.8, so a fixed 0.80 threshold never fires. Confidence % = softmax over the top-5 scores (τ = 0.05).
+- **Reset stages the demo by running real flows:** a loop pass plus a chat message. There are no hand-written audit rows. `REFUND_DELAY_SECONDS=3` for the demo. Senso lookups are warmed in parallel with the seed. Identical Senso queries within 120 s reuse the result, and citations keep their original `retrieved_at`.
+- **SingleStore connection pool** (max 6): per-thread connections cost ~1–7 s each over TLS to us-east and leaked.
+- **Persona** (per docs.withpersona.com "Creating inquiries"):
+  - `POST https://api.withpersona.com/api/v1/inquiries` needs `inquiry-template-id` (`itmpl_…`).
+  - `meta.auto-create-inquiry-session` returns `meta.session-token`.
+  - New inquiries are `created`; only `completed`/`approved` count as verified.
+  - The audit records which one happened (`persona_verified` vs `persona_inquiry_created`).
+  - `PERSONA_REQUIRE_COMPLETED=true` makes execution wait for the embedded flow.
+- **Statsig:** the server key works, but `replacement_strategy` returns `{}` (not configured). Console setup:
+  1. Experiments → Create. Name: `replacement_strategy`. ID type: User ID.
+  2. Add one parameter, `strategy` (String): Control = `same_item`, Test = `best_rated`.
+  3. Allocate 100%, split 50/50, then Start.
+- **Duplicate detection:** same SKU on the same day, ignoring orders Snapback placed itself. The seeded bottle pair is now on different days (a negative test), so a fresh reset shows exactly two cards.
+
 ## Sponsor doc conflicts
 - SIE `api.md` documents the self-hosted server (raw slashes in model paths, msgpack default). Hosted needs URL-encoded model IDs and JSON. We follow the hosted examples.

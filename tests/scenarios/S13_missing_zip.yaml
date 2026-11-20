@@ -1,0 +1,9 @@
+id: S13
+name: Order email missing the ZIP -> never guessed, return not filed
+steps:
+  - chat: "My USB-C headphone DAC stopped working"
+  - wait: {status: [failed, done], timeout: 30}
+expect:
+  status: failed
+  rule_passed: never_invent_missing_fields
+  steps_exclude: [order_placed, refund_received]

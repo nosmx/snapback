@@ -33,6 +33,11 @@ def file_missing_claim(store: str, order_no: str, zip_code: str, idempotency_key
                                                  "idempotency_key": idempotency_key, "verified_by": verified_by})
 
 
+def cancel_order(store: str, order_no: str, zip_code: str, idempotency_key: str, verified_by: str = ""):
+    return _form(f"/s/{store}/orders/cancel", {"order_no": order_no, "zip_code": zip_code,
+                                                "idempotency_key": idempotency_key, "verified_by": verified_by})
+
+
 def current_price(store: str, sku: str) -> Optional[Dict[str, Any]]:
     r = httpx.get(f"{M}/s/{store}/api/price/{sku}", timeout=10)
     return r.json() if r.status_code == 200 else None

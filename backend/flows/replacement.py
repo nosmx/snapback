@@ -9,6 +9,7 @@ from __future__ import annotations
 from typing import Any, Dict, List, Optional
 
 from backend import rules
+from backend.actions import merchant_api
 from backend.integrations import senso, sie, statsig
 from backend.integrations.base import model_label
 from backend.integrations.singlestore import db
@@ -23,6 +24,16 @@ def rank(order: Dict[str, Any], mandate: Dict[str, Any]) -> Dict[str, Any]:
     hits = db().vector_search("catalog", "text_embedding", "sku", qvec, k=10)
     pool = [catalog[s] for s, _ in hits if s in catalog and
             (not category or (catalog[s].get("specs") or {}).get("category") == category)]
+    # live stock + price from the store (the catalog row is a snapshot)
+    out_of_stock: List[Dict[str, str]] = []
+    live = []
+    for c in pool:
+        info = merchant_api.current_price(c["store"], c["sku"])
+        if not info or not info.get("in_stock", True):
+            out_of_stock.append({"option": f"{c['name']}", "reason": "out of stock at the store right now"})
+            continue
+        live.append({**c, "price": float(info["price"]), "in_stock": True})
+    pool = live
     docs = [f"{c['name']}. Rating {c['rating']}. {(c.get('specs') or {})}" for c in pool]
     order_ranked, rmeta = sie.rerank(query, docs) if docs else ([], {"mode": "none", "provider": "sie", "degraded": False})
     ranked = [pool[i] for i, _ in order_ranked]
@@ -36,9 +47,14 @@ def rank(order: Dict[str, Any], mandate: Dict[str, Any]) -> Dict[str, Any]:
                        (review_res.get("citations") or [None])[0])
 
     checks: List[Dict[str, Any]] = []
-    rejected: List[Dict[str, str]] = []
+    rejected: List[Dict[str, str]] = list(out_of_stock)
     chosen: Optional[Dict[str, Any]] = None
+    ask: Optional[Dict[str, Any]] = None   # fits everything except the spending limits -> ask the user
     price = float(order["price"])
+    if original and original["sku"] in {c["sku"] for c in pool}:
+        original = next(c for c in pool if c["sku"] == original["sku"])
+    elif original:
+        original = None   # out of stock: can't re-buy the same item
 
     same_ok = False
     if original:
@@ -49,6 +65,8 @@ def rank(order: Dict[str, Any], mandate: Dict[str, Any]) -> Dict[str, Any]:
         if same_ok and strategy.startswith("same_item"):
             chosen = original
         else:
+            if poor["passed"] and not within:
+                ask = original
             rejected.append({"option": f"Same item: {original['name']}",
                              "reason": poor["evidence"] if not poor["passed"] else "fails the spending limits"})
 
@@ -64,6 +82,9 @@ def rank(order: Dict[str, Any], mandate: Dict[str, Any]) -> Dict[str, Any]:
                 failed = next((r["evidence"] for r in rs if not r["passed"]), "poor reviews")
                 rejected.append({"option": f"{c['name']} (${float(c['price']):.2f}, ★{c['rating']})", "reason": failed})
         eligible.sort(key=lambda c: (-float(c["rating"] or 0), float(c["price"])))
+        if not eligible and ask is None:
+            fine_reviews = [c for c in ranked if c in pool and rules.poor_reviews(c.get("rating"), mandate)["passed"]]
+            ask = sorted(fine_reviews, key=lambda c: (-float(c["rating"] or 0), float(c["price"])))[0] if fine_reviews else None
         if eligible:
             chosen = eligible[0]
             for c in eligible[1:]:
@@ -77,7 +98,7 @@ def rank(order: Dict[str, Any], mandate: Dict[str, Any]) -> Dict[str, Any]:
                               (" (experiment not configured)" if not variant.get("configured", True) else "") +
                               f"; mandate strategy '{strategy}' is authoritative"))
     return {
-        "chosen": chosen, "rejected": rejected, "rules": checks, "query": query, "rerank_scores": rerank_scores,
+        "chosen": chosen, "ask": ask if chosen is None else None, "rejected": rejected, "rules": checks, "query": query, "rerank_scores": rerank_scores,
         "statsig": variant, "strategy": strategy, "review_cite": review_cite,
         "model": model_label(rmeta, sie.model_name("rerank")) if docs else model_label(emeta, sie.model_name("text")),
         "candidates": [{"sku": c["sku"], "name": c["name"], "price": float(c["price"]), "rating": float(c["rating"] or 0),

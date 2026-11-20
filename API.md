@@ -46,7 +46,7 @@ Tasks whose `decision` is `kept` or `ignored` are hidden.
 }
 ```
 
-**`trigger_type` values:** `photo` · `price_drop_minor` · `price_drop_major` · `return_window` · `missing_package`.
+**`trigger_type` values:** `photo` · `chat` · `price_drop_minor` · `price_drop_major` · `return_window` · `missing_package` · `duplicate`.
 
 **Status lifecycle:**
 - `detected`/`planned` → `executing` → `verifying` → `awaiting_refund` → `done`
@@ -100,7 +100,7 @@ Return-window card:
 ```
 
 ### `POST /api/approvals/{approval_id}/answer`
-**Request:** `{ "option_id": "price_match" }`
+**Request:** `{ "option_id": "price_match" }`, optionally with `"persona_inquiry_id": "inq_…"` when the frontend has already run Persona's embedded flow. In that case the backend checks that inquiry's real status instead of creating one.
 
 **Response:**
 ```json
@@ -110,7 +110,7 @@ Return-window card:
 **Idempotent:** a second call returns the first result with `"replayed": true` and never re-executes. The audit log keeps exactly one `user_approved` entry.
 
 **On `execute`:**
-1. `persona.start_inquiry` + `is_verified`.
+1. Persona: a sandbox inquiry is created (or the client's one is checked). Its id is recorded. The audit rule is `persona_verified` when the status is `completed`/`approved`, or `persona_inquiry_created` (status `created`) otherwise. With `PERSONA_REQUIRE_COMPLETED=true`, an unfinished verification blocks execution.
 2. A `user_approved` entry with `authorized_by: "approval:<id>"`.
 3. The flow runs in the background.
 
@@ -146,6 +146,30 @@ Returns immediately. iPhone `.heic` files are converted to JPEG. Steps, in order
 - Not covered at all: a "Buy a replacement?" card.
 - No verified Senso policy: `failed` with "did not act".
 
+### Other cards
+- **Over-cap replacement:** the return is done, and the best replacement is over `require_approval_over_usd`. Options are `buy` (execute) or `skip` (dismiss).
+- **Duplicate order:** options are `cancel_extra` (execute; cancels the newer order, or returns it if already delivered) or `keep_both` (dismiss).
+- **Ambiguous photo:** the top-3 orders (execute; continues the flow with that order) or `none` (dismiss).
+
+---
+
+## Chat trigger
+
+### `POST /api/chat` with `{ "message": "My old Vortex Pro blender just died" }` → `{ "task_id": "tsk_…" }`
+**Steps:** `task_detected` → `intent_classified` → `order_matched` (item-name overlap checked by code, `NN%`) → the same policy → rules → act path as the photo flow. For example, a 14-month-old blender gets a warranty claim:
+`policy_retrieved` → `decision_made` ("Warranty claim") → `claim_filed` → `verified`.
+
+---
+
+## Persona
+
+### `GET /api/persona/config`
+Everything the frontend needs for `new Persona.Client({ templateId, environmentId, … })`:
+```json
+{ "mode": "mock", "environment_id": null, "template_id": null, "environment": "sandbox", "verified_statuses": ["completed", "approved"] }
+```
+`mode` turns `real` once `PERSONA_TEMPLATE_ID_APPROVAL` (`itmpl_…`) is set alongside the sandbox key.
+
 ---
 
 ## Audit
@@ -171,15 +195,24 @@ Entry shape (`reason` is in `inputs.reason`):
 ---
 
 ## Demo helpers
-- **`POST /api/demo/reset`:** resets the mock world (with staging: kettle −$5, blender −$30, speakers lost), re-seeds the DB, and starts a background-loop pass. It takes ~15 s on SingleStore. Within ~10 s afterwards, the feed shows the two autonomous tasks and the two decision cards.
+- **`POST /api/demo/reset`:** resets the mock world, re-seeds the DB, and **stages the demo by running the real flows**:
+  - a background-loop pass: the minor drop is claimed and the lost package gets a claim, then the major-drop and return-window cards appear
+  - the chat message "My old Vortex Pro blender just died…", which leads to a warranty claim
+
+  The call returns once the 3 autonomous tasks are `done` and 2 cards are pending (typically 12–14 s, capped at `wait_s` = 19). `?stage=false` gives a plain seed.
   ```json
-  { "ok": true, "db_backend": "singlestore", "orders": 15, "catalog": 21, "audit_chain": { "ok": true, "entries": 16, "broken_at_seq": null } }
+  { "ok": true, "seconds": 13.3, "seed_seconds": 3.3,
+    "completed": [ { "task_id": "tsk_…", "trigger_type": "price_drop_minor", "outcome": "$5.00 price adjustment refunded" },
+                   { "task_id": "tsk_…", "trigger_type": "missing_package",  "outcome": "$89.00 refunded for the lost package" },
+                   { "task_id": "tsk_…", "trigger_type": "chat",             "outcome": "Warranty replacement ships by 2026-11-23" } ],
+    "pending_approvals": 2, "audit_chain": { "ok": true, "entries": 43, "broken_at_seq": null },
+    "orders": 16, "catalog": 21, "db_backend": "singlestore" }
   ```
-- **`POST /api/demo/trigger`** with `{ "kind": "major_price_drop" | "return_window" | "tamper" }`:
-  - `major_price_drop`: sets the Vortex Blender to $89 and runs detection → `{ "ok": true, "task_id": "tsk_…" }`. This is idempotent per price level.
-  - `return_window`: runs detection for the Kestrel jacket (3 days left) → `{ "ok": true, "task_id": "tsk_…" }`
+- **`POST /api/demo/trigger`** with `{ "kind": "major_price_drop" | "return_window" | "tamper", "price": 85 }`:
+  - `major_price_drop`: sets the Vortex Blender to `price` (default $89) and runs detection → `{ "ok": true, "task_id": "tsk_…" }`. This is idempotent per price level, so a new price creates a new card.
+  - `return_window`: detection for the Kestrel jacket (3 days left) → `{ "ok": true, "task_id": "tsk_…" }`
   - `tamper`: edits the latest `decision_made` row without re-hashing → `{ "ok": true, "tampered_seq": 30, "task_id": "…", "verify": { "ok": false, "broken_at_seq": 30 } }`
-- **`POST /api/loop/run`:** runs one background-loop pass now → `{ "tasks": 0, "refunds_closed": 1 }`
+- **`POST /api/loop/run`:** one background-loop pass now → `{ "tasks": 1, "refunds_closed": 0, "new_orders": 2 }`. It ingests new order emails (such as purchase confirmations), then detects price drops, closing windows, missing packages and duplicates, then follows up on refunds.
 
 ## Other
 - **`GET /api/health`:** reports each sponsor as real or mock, plus table counts.

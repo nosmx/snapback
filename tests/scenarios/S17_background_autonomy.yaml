@@ -1,0 +1,6 @@
+id: S17
+name: Background loop handles a lost package and a minor price drop with no user input
+steps: []
+expect:
+  tasks_done: [missing_package, price_drop_minor, chat]
+  chain_ok: true

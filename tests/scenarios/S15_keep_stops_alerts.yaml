@@ -1,0 +1,8 @@
+id: S15
+name: Return-window card -> Keep stops alerts and hides the task
+steps:
+  - answer: {card: deadline, option: keep}
+expect:
+  decision: kept
+  hidden_from_feed: true
+  order_status: {KSO-77120: kept}

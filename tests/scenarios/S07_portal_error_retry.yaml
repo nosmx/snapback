@@ -1,0 +1,11 @@
+id: S07
+name: Portal error -> retry once, then succeed (attempts logged)
+setup:
+  - merchant: {path: /admin/fail-next, data: {}}
+steps:
+  - answer: {card: deadline, option: return}
+  - wait: {status: [done, failed], timeout: 40}
+expect:
+  status: done
+  inputs_contain: {return_filed: "temporarily unavailable"}
+  steps_include: [return_filed, verified, refund_received]

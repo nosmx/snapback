@@ -237,7 +237,7 @@ def checkout_submit(request: Request, store_id: str, sku: str = Form(...), ship_
         dup = next((p for p in m["purchases"] if p.get("idempotency_key") == idempotency_key), None)
         if dup:
             return _page(request, "checkout_confirm.html", store, purchase=dup, item=item, already=True)
-    if not item.get("in_stock", True):
+    if not _in_stock(sku):
         return _error(request, store, "Out of stock", f"{item['name']} is currently out of stock.", 409)
     price = float(W.prices().get(sku, item["price"]))
     if max_price and price > float(max_price):
@@ -262,8 +262,12 @@ def checkout_submit(request: Request, store_id: str, sku: str = Form(...), ship_
     W.add_inbox_email(
         sender=f"{store['name']} <{store['orders_email']}>",
         subject=f"Order confirmation {order_no}",
-        body_text=(f"Thanks for your order!\nOrder #: {order_no}\nItem: {item['name']} (SKU {sku})\n"
-                   f"Price: ${price:.2f}\nShip to ZIP: {ship_zip}\nEstimated delivery: {m['orders'][order_no]['eta']}"),
+        body_text=(f"Thanks for your order!\n\nOrder summary\nOrder #: {order_no}\n"
+                   f"Order date: {W.now():%B} {W.now().day}, {W.now().year}\nItem: {item['name']} (SKU {sku})\nQty: 1\n"
+                   f"Price: ${price:.2f}\nOrder total: ${price:.2f}\nShip to: Alex Moreno, San Francisco, CA {ship_zip}\n"
+                   f"Carrier tracking: {m['orders'][order_no]['tracking']}\n"
+                   f"Returns: {store['merchant_rules']['return_window_days']} days from delivery\n"
+                   f"Estimated delivery: {m['orders'][order_no]['eta']}\n\n{store['name']} · {store['support_email']}"),
         kind="order_confirmation", image=W.product_image_name(sku), meta={"order_no": order_no, "sku": sku, "price": price},
     )
     return _page(request, "checkout_confirm.html", store, purchase=purchase, item=item, already=False)
@@ -378,7 +382,46 @@ def missing_claim(store_id: str, order_no: str = Form(...), zip_code: str = Form
     return rec
 
 
+@app.post("/s/{store_id}/orders/cancel")
+def cancel_order(store_id: str, order_no: str = Form(...), zip_code: str = Form(...),
+                 idempotency_key: str = Form(""), verified_by: str = Form("")):
+    """Cancel an order that hasn't been delivered yet (full refund)."""
+    store = _store(store_id)
+    dup = _support_dup("claims", idempotency_key)
+    if dup:
+        return {**dup, "already": True}
+    o = _find_order(store_id, order_no, zip_code)
+    if not o:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, 404)
+    if o["delivered_at"]:
+        return JSONResponse({"ok": False, "error": "already_delivered_return_instead"}, 409)
+    if o["status"] != "active":
+        return JSONResponse({"ok": False, "error": f"order_{o['status']}"}, 409)
+    cancel_id = f"CXL-{store['order_prefix']}-{random.randint(10000, 99999)}"
+    rec = {"ok": True, "claim_id": cancel_id, "type": "cancellation", "order_no": o["order_no"], "amount": o["price"],
+           "created_at": W.now().isoformat(timespec="seconds"), "idempotency_key": idempotency_key or None,
+           "verified_by": verified_by or None}
+    m = W.merchant()
+    m["claims"].append(rec)
+    m["orders"][o["order_no"]]["status"] = "cancelled"
+    W.save_merchant(m)
+    delay = int(W.world().get("refund_delay_seconds", 10))
+    W.add_bank_txn(merchant_name=store["name"], amount=o["price"], memo=f"Refund {cancel_id} cancelled order {o['order_no']}",
+                   kind="refund", posts_at=W.now() + timedelta(seconds=delay), ref=cancel_id)
+    W.add_inbox_email(sender=f"{store['name']} <{store['support_email']}>",
+                      subject=f"Order {o['order_no']} cancelled ({cancel_id})",
+                      body_text=f"Your order {o['order_no']} for {o['name']} was cancelled before shipping. "
+                                f"${o['price']:.2f} will be refunded to your original payment method.\nReference: {cancel_id}",
+                      kind="cancel_confirmation", meta={"claim_id": cancel_id, "order_no": o["order_no"], "amount": o["price"]})
+    return rec
+
+
 # ---------------- JSON APIs: prices + carrier ----------------
+
+def _in_stock(sku: str) -> bool:
+    item = W.catalog().get(sku) or {}
+    return bool(item.get("in_stock", True)) and sku not in (W.world().get("out_of_stock") or [])
+
 
 @app.get("/s/{store_id}/api/price/{sku}")
 def api_price(store_id: str, sku: str):
@@ -386,7 +429,7 @@ def api_price(store_id: str, sku: str):
     if not item or item["store"] != store_id:
         raise HTTPException(404, "Unknown SKU")
     return {"store": store_id, "sku": sku, "price": W.prices().get(sku, item["price"]),
-            "in_stock": item.get("in_stock", True), "as_of": W.now().isoformat(timespec="seconds"),
+            "in_stock": _in_stock(sku), "as_of": W.now().isoformat(timespec="seconds"),
             "url": f"{W.MERCHANT_BASE_URL}/s/{store_id}/checkout?sku={sku}"}
 
 
@@ -499,6 +542,16 @@ def admin_fail_next():
     w["fail_next_submit"] = not w.get("fail_next_submit", False)
     W.save_world(w)
     return RedirectResponse("/admin", 303)
+
+
+@app.post("/admin/stock")
+def admin_stock(sku: str = Form(...), in_stock: str = Form("false")):
+    w = W.world()
+    oos = set(w.get("out_of_stock") or [])
+    (oos.discard if in_stock.lower() in ("1", "true", "yes") else oos.add)(sku)
+    w["out_of_stock"] = sorted(oos)
+    W.save_world(w)
+    return {"ok": True, "out_of_stock": w["out_of_stock"]}
 
 
 @app.post("/admin/reset")

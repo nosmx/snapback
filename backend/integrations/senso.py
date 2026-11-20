@@ -205,8 +205,22 @@ def ingest(doc_id: str, title: str, markdown: str, metadata: Optional[Dict[str, 
                 lambda: {"doc_id": doc_id, "status": "mirrored-locally"})
 
 
+_qcache: Dict[Tuple[str, Optional[str], int], Tuple[float, Tuple[Dict[str, Any], Dict[str, Any]]]] = {}
+
+
 def query(question: str, store: Optional[str] = None, k: int = 5) -> Tuple[Dict[str, Any], Dict[str, Any]]:
-    return call("senso", lambda: _real_query(question, store, k), lambda: _mock_query(question, store, k))
+    """Cited search. Identical queries within 120 s reuse the result (the citations keep their
+    original retrieved_at), which keeps concurrent flows fast and saves search credits."""
+    import time as _t
+    key = (question, store, k)
+    hit = _qcache.get(key)
+    if hit and _t.time() - hit[0] < 120:
+        res, meta = hit[1]
+        return res, {**meta, "latency_ms": 0, "cached": True}
+    out = call("senso", lambda: _real_query(question, store, k), lambda: _mock_query(question, store, k))
+    if out[1]["mode"] == "real" and not out[1]["degraded"]:
+        _qcache[key] = (_t.time(), out)
+    return out
 
 
 def parse_summary(text: str) -> Dict[str, Any]:

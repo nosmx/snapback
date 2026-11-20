@@ -1,0 +1,12 @@
+id: S05
+name: Replacement out of stock -> next-ranked candidate
+setup:
+  - merchant: {path: /admin/stock, data: {sku: NWA-ARC-ANC2, in_stock: "false"}}
+steps:
+  - photo: mock/photos/demo_broken_headphones.png
+  - wait: {status: [done, failed], timeout: 45}
+expect:
+  status: done
+  decision_contains: {replacement_ranked: "Studio Monitor", order_placed: "Studio Monitor"}
+  steps_include: [return_filed, replacement_ranked, order_placed, refund_received]
+max_seconds: 30

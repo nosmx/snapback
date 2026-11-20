@@ -1,0 +1,8 @@
+id: S16
+name: Same approval answered twice -> one execution
+steps:
+  - answer: {card: price, option: price_match, twice: true}
+  - wait: {status: [done, failed], timeout: 30}
+expect:
+  status: done
+  replayed: true

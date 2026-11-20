@@ -1,0 +1,6 @@
+id: S11
+name: Same item bought on different days is NOT flagged as a duplicate
+steps:
+  - loop: true
+expect:
+  no_task: duplicate
