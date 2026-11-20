@@ -4,7 +4,7 @@ This implements `frontend/API_NEEDS.md`. Every example below was captured from t
 
 **Conventions**
 - **Timestamps:** naive UTC (`2026-11-20 21:14:18.427796`). Dates are `YYYY-MM-DD`.
-- **Async flows:** all flows run in background threads. Endpoints return immediately; poll the task and audit to watch progress.
+- **Async flows:** all flows run in background threads. Endpoints return immediately; watch progress live on `GET /api/stream` (SSE), or poll `GET /api/audit?since_seq=N`.
 - **When a task is `done`:** only after the verifier confirms from outside evidence (a confirmation email in the inbox and the refund posted in the bank ledger). Return and adjustment tasks wait in `awaiting_refund` until the refund lands (`REFUND_DELAY_SECONDS`, default 10).
 - **`authorized_by` values:**
   - `mandate:<rule>` (e.g. `mandate:auto_return_defective`, `mandate:price_drop.auto_adjust_minor`, `mandate:price_drop.major_if`, `mandate:return_window_alert_days`, `mandate:replacement`, `mandate:auto_missing_package_claim`)
@@ -45,6 +45,9 @@ Tasks whose `decision` is `kept` or `ignored` are hidden.
   }
 }
 ```
+
+**Return tasks** also carry the drop-off reminder in `details`: `ics_url` (download link), plus `reminder`:
+`{ "method": "apple_calendar" | "mock" | "ics", "title": "Drop off return: Ridge Rain Jacket (Kestrel Outdoors)", "start": "2026-11-20T15:30", "time_label": "Fri, Nov 20 · 3:30 PM", "calendar_url": null | "http://localhost:8001/calendar?date=…", "ics_url": "…" }`.
 
 **`trigger_type` values:** `photo` · `chat` · `price_drop_minor` · `price_drop_major` · `return_window` · `missing_package` · `duplicate`.
 
@@ -174,6 +177,7 @@ Everything the frontend needs for `new Persona.Client({ templateId, environmentI
 
 ## Audit
 - **`GET /api/audit?task_id=…`:** that task's entries in chain order. Without `task_id`, it returns the latest entries (`limit`, default 200).
+- **`GET /api/audit?since_seq=N`:** the polling fallback for `/api/stream`. It returns every entry with `seq > N`, oldest first (up to 500; combine with `task_id` to filter). The response header `X-Audit-Head-Seq` is the chain head. If it's **below** your `N`, the trail was reset (demo reset), so start again from `since_seq=0`.
 - **`GET /api/audit/verify`** → `{ "ok": true, "entries": 57, "broken_at_seq": null, "head": "…" }`
 - **`GET /api/audit/export?task_id=…`:** JSON export with the chain status.
 
@@ -191,6 +195,44 @@ Entry shape (`reason` is in `inputs.reason`):
 }
 ```
 `entry_id` values from SingleStore are large (~1e15) but below 2^53, so they're safe as JS numbers. Sort by `seq`.
+
+Every entry returned by `/api/audit` (all variants) and every stream event also carries its **provenance**:
+- **`provider`:** the integration that produced the step. Values: `senso` · `sie` · `singlestore` · `persona` · `statsig` · `llm` · `playwright` · `calendar`, or Snapback's own components `merchant_api` · `verifier` · `user` · `snapback`.
+- **`mode`:** `real`, `mock`, or `null` for Snapback's own components.
+- **`providers`:** every integration that contributed to the step. Example for `replacement_ranked`: `["sie", "singlestore", "statsig", "senso", "amplitude"]`. `amplitude` appears on every agent step because each one is sent to Amplitude.
+
+Provenance is derived only from sealed fields (`step`, `model`, `inputs`, `sources`), so it's covered by the hash chain. The `model` label comes from the integration meta at call time: the real model id when live (`senso:search/context`, `google/siglip-so400m-patch14-384`, `osascript:Calendar`), or `mock:<provider>` when mocked.
+
+## Live stream (SSE)
+
+### `GET /api/stream` → `text/event-stream`
+Pushes every new audit entry and every task status change as it's written. Every event is a default `message` (so `EventSource.onmessage` sees everything) whose JSON has a `type`:
+
+| `type` | When | Payload |
+|---|---|---|
+| `hello` | on connect | `{ "head_seq": 43, "boot_id": … }` |
+| `audit` | each sealed audit entry | see below |
+| `task` | task created or status changed | `{ "task_id", "trigger_type", "status", "prev_status", "decision", "title", "summary", "updated_at" }` |
+| `reset` | `POST /api/demo/reset` started | `{ "at": "…" }`. Clear your timeline; the re-seeded entries follow from `seq` 1 |
+| `tampered` | demo tamper trigger | `{ "seq": 30, "task_id": "…" }`. Re-run `/api/audit/verify` |
+| `resync` | events were missed (buffer overflow or backend reload) | refetch `GET /api/audit?since_seq=<last seq you have>` |
+
+```json
+{"type":"audit","seq":45,"task_id":"tsk_ab75213fe2a1","step":"intent_classified","decision":"Intent: broken item",
+ "authorized_by":"user","model":"mock:llm","latency_ms":1,"cost_usd":0.0,"verified":null,
+ "provider":"llm","mode":"mock","providers":["llm","amplitude"],"created_at":"2026-11-20T22:25:14.612408"}
+{"type":"task","task_id":"tsk_ab75213fe2a1","trigger_type":"chat","status":"executing","prev_status":"planned",
+ "decision":null,"title":"Chat: understanding your message","summary":"…","updated_at":"2026-11-20T22:25:14.430712"}
+```
+
+- **`?since_seq=N`:** first replays the sealed entries after `N` from the database, then goes live (no duplicates).
+- **Reconnects:** `EventSource` reconnects on its own (`retry: 1500`) and sends `Last-Event-ID`, so the stream resumes from the in-memory buffer.
+- **Lifetime and heartbeat:** the server closes a stream after 10 minutes (the client reconnects transparently) and when the backend reloads. A `: ping` comment goes out every 15 s.
+
+```js
+const es = new EventSource("http://localhost:8000/api/stream?since_seq=" + lastSeq);
+es.onmessage = (e) => { const ev = JSON.parse(e.data); if (ev.type === "audit") addStep(ev); else if (ev.type === "task") updateTask(ev); else if (ev.type === "reset" || ev.type === "resync") reload(); };
+```
 
 ---
 
@@ -212,10 +254,12 @@ Entry shape (`reason` is in `inputs.reason`):
   - `major_price_drop`: sets the Vortex Blender to `price` (default $89) and runs detection → `{ "ok": true, "task_id": "tsk_…" }`. This is idempotent per price level, so a new price creates a new card.
   - `return_window`: detection for the Kestrel jacket (3 days left) → `{ "ok": true, "task_id": "tsk_…" }`
   - `tamper`: edits the latest `decision_made` row without re-hashing → `{ "ok": true, "tampered_seq": 30, "task_id": "…", "verify": { "ok": false, "broken_at_seq": 30 } }`
+- **`GET /api/demo/calendar`** → `{ "mode": "auto", "calendar": "Snapback", "mock_calendar_url": "http://localhost:8001/calendar" }`. **`POST /api/demo/calendar`** with `{ "mode": "auto" | "mock" | "ics" | null }` sets where drop-off reminders go: `auto` tries Apple Calendar, then the mock calendar, then `.ics`; `mock` skips Apple Calendar (the test runners use it); `null` restores `CALENDAR_MODE` from `.env`.
 - **`POST /api/loop/run`:** one background-loop pass now → `{ "tasks": 1, "refunds_closed": 0, "new_orders": 2 }`. It ingests new order emails (such as purchase confirmations), then detects price drops, closing windows, missing packages and duplicates, then follows up on refunds.
 
 ## Other
 - **`GET /api/health`:** reports each sponsor as real or mock, plus table counts.
 - **`GET /api/orders`**, **`GET /api/orders/{id}`**, **`GET /api/mandate`**
 - **`GET /api/uploads/<file>`:** uploaded photos.
-- **`GET /api/reminders/<task_id>.ics`:** drop-off reminders.
+- **`GET /api/reminders/<task_id>.ics`:** drop-off reminders (30 min, 1-hour alert). Always written, even when the event also went to Apple Calendar or the mock calendar.
+- **Mock calendar (merchant :8001):** `GET /calendar` is the week view and refreshes every 2 s. `GET /calendar/events.json` lists the events, and `POST /calendar/events` adds one (idempotent per `task_id`).

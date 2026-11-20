@@ -224,10 +224,16 @@ def main(argv: List[str]) -> int:
         print("FIREDRILL_API_KEY found, but the Firedrill integration is not verified yet: running locally.")
     print(f"Running {len(files)} scenarios ({runner}) against {API}\n")
     results = []
-    for f in files:
-        sid, name, ok, dt, detail = run_one(f)
-        results.append((sid, ok))
-        print(f"  {'PASS' if ok else 'FAIL'}  {sid}  {dt:5.1f}s  {name:52} {'' if ok else detail}", flush=True)
+    # drop-off reminders go to the mock calendar during the run, not the real macOS Calendar
+    cal_mode = api.get("/api/demo/calendar").json().get("mode")
+    api.post("/api/demo/calendar", json={"mode": "mock"})
+    try:
+        for f in files:
+            sid, name, ok, dt, detail = run_one(f)
+            results.append((sid, ok))
+            print(f"  {'PASS' if ok else 'FAIL'}  {sid}  {dt:5.1f}s  {name:52} {'' if ok else detail}", flush=True)
+    finally:
+        api.post("/api/demo/calendar", json={"mode": cal_mode})
     passed = sum(ok for _, ok in results)
     print(f"\nPass rate: {passed}/{len(results)} ({passed / max(len(results), 1):.0%})")
     # leave the demo in its staged state

@@ -23,8 +23,7 @@ from backend.integrations.singlestore import db
 
 MATCH_MARGIN = 0.04
 UPLOADS = DATA_DIR / "uploads"
-STORE_NAMES = {"northwind-audio": "Northwind Audio", "juniper-home": "Juniper Home",
-               "kestrel-outdoors": "Kestrel Outdoors", "larkspur-supply": "Larkspur Supply Co."}
+STORE_NAMES = rules.STORE_NAMES
 
 
 def start(content: bytes, filename: str) -> str:

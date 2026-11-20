@@ -66,3 +66,10 @@ def run(tid: str, message: str) -> None:
            rules_checked=checks, authorized_by="mandate:auto_return_defective",
            model=(best.get("extraction") or {}).get("model") or "", track={"store": best["store"]})
     after_match(tid, best, mandate)
+
+
+# Chat tasks continue through the photo flow after the match (after_match), so their approvals
+# (over-cap buy, buy-fix) are answered by the same handler.
+from backend.flows.photo import _photo_answer  # noqa: E402
+
+O.on_answer("chat")(_photo_answer)

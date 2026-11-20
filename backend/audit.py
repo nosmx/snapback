@@ -13,7 +13,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Dict, List, Optional
 
-from backend import clock
+from backend import clock, events
 from backend.integrations.singlestore import db
 
 GENESIS = "0" * 64
@@ -101,6 +101,7 @@ def append(task_id: Optional[str], step: str, *, inputs: Any = None, sources: Op
         entry["prev_hash"] = head["entry_hash"]
         entry["entry_hash"] = compute_hash(entry["prev_hash"], entry)
         db().insert("audit_log", entry)
+        events.publish(stream_view(entry))
     return entry
 
 
@@ -127,6 +128,8 @@ def append_many(items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             entry["entry_hash"] = prev = compute_hash(prev, entry)
             out.append(entry)
         db().insert_many("audit_log", out)
+        for entry in out:
+            events.publish(stream_view(entry))
     return out
 
 
@@ -142,3 +145,114 @@ def verify_chain() -> Dict[str, Any]:
 
 def entries_for_task(task_id: str) -> List[Dict[str, Any]]:
     return db().select("audit_log", {"task_id": task_id}, order_by="seq ASC")
+
+
+# ---------------- provenance + streaming views ----------------
+
+SIE_ORGS = ("google/", "BAAI/", "Qwen/", "fastino/")
+AUDIT_ONLY = {"email_ingested", "mandate_verified"}   # seed entries; not sent to Amplitude
+
+
+def _obj(v: Any) -> Any:
+    if isinstance(v, str):
+        try:
+            return json.loads(v)
+        except ValueError:
+            return None
+    return v
+
+
+def _db_mode() -> str:
+    return "real" if getattr(db(), "backend", "") == "singlestore" else "mock"
+
+
+def provenance(e: Dict[str, Any]) -> Dict[str, Any]:
+    """Which integration produced a step: {provider, mode, providers}.
+
+    Derived only from sealed fields (step, model label, inputs, sources), so the stream and
+    /api/audit always agree and the answer is covered by the hash chain. The model label comes from
+    the integration meta at call time: the real model id when live, `mock:<provider>` when mocked.
+    mode is real | mock, or None for Snapback's own components.
+    """
+    step = e.get("step") or ""
+    model = (e.get("model") or "").strip()
+    inputs = _obj(e.get("inputs")) or {}
+    sources = _obj(e.get("sources")) or []
+    mode: Any = "real"
+    if model.startswith("mock:"):
+        provider, mode = model[5:] or "mock", "mock"
+    elif model.startswith("senso"):
+        provider = "senso"
+    elif model.startswith("persona"):
+        provider = "persona"
+    elif model.startswith("claude"):
+        provider = "llm"
+    elif model.startswith("statsig"):
+        provider = "statsig"
+    elif model == "playwright":
+        provider = "playwright"
+    elif model.startswith("osascript"):
+        provider = "calendar"
+    elif model == "ics":
+        provider, mode = "calendar", None
+    elif model == "merchant-api":
+        provider, mode = "merchant_api", None
+    elif model.startswith(SIE_ORGS) or "/" in model:
+        provider = "sie"
+    elif step in ("verified", "refund_received"):
+        provider, mode = "verifier", None
+    elif step == "user_approved":
+        provider, mode = "user", None
+    else:
+        provider, mode = "snapback", None
+    if step == "order_matched" and isinstance(inputs, dict) and "margin" in inputs:
+        # photo match: DOT_PRODUCT vector search in SingleStore over SIE image embeddings
+        provider, mode = "singlestore", _db_mode()
+
+    providers = [provider]
+
+    def add(p: str) -> None:
+        if p not in providers:
+            providers.append(p)
+
+    if step == "photo_identified" or (step == "order_matched" and provider == "singlestore"):
+        add("sie")
+    if step == "replacement_ranked":
+        add("singlestore")       # catalog vector search
+    if isinstance(inputs, dict):
+        if inputs.get("statsig") is not None:
+            add("statsig")
+        if inputs.get("persona_inquiry_id"):
+            add("persona")
+    if any(isinstance(x, dict) and x.get("source") in ("senso", "local-mirror") for x in sources or []):
+        add("senso")
+    if step not in AUDIT_ONLY:
+        add("amplitude")         # every agent step is also sent to Amplitude
+    return {"provider": provider, "mode": mode, "providers": providers}
+
+
+def with_provenance(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+    for r in rows:
+        r.update(provenance(r))
+    return rows
+
+
+def stream_view(e: Dict[str, Any]) -> Dict[str, Any]:
+    """The compact audit event sent over /api/stream."""
+    ts = _norm_ts(e.get("created_at"))
+    return {"type": "audit", "seq": int(e["seq"]), "task_id": e.get("task_id"), "step": e.get("step"),
+            "decision": e.get("decision"), "authorized_by": e.get("authorized_by") or None,
+            "model": e.get("model") or None, "latency_ms": e.get("latency_ms"),
+            "cost_usd": None if e.get("cost_usd") is None else float(e["cost_usd"]),
+            "verified": e.get("verified"), **provenance(e),
+            "created_at": ts.replace(" ", "T") if ts else None}
+
+
+def entries_since(since_seq: int, limit: int = 500) -> List[Dict[str, Any]]:
+    from backend.integrations.singlestore import COLUMNS
+    return db().query(f"SELECT {', '.join(COLUMNS['audit_log'])} FROM audit_log WHERE seq > %s "
+                      f"ORDER BY seq ASC LIMIT {int(limit)}", [int(since_seq)])
+
+
+def head_seq() -> int:
+    return int(_head()["seq"])

@@ -1,17 +1,22 @@
 """Snapback orchestrator API (FastAPI, :8000). Contract: frontend/API_NEEDS.md, documented in API.md."""
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
+import signal
 import time
 from typing import Any, Dict, List, Optional
 
 import httpx
-from fastapi import FastAPI, File, HTTPException, UploadFile
+from fastapi import FastAPI, File, HTTPException, Request, Response, UploadFile
+from fastapi.concurrency import run_in_threadpool
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from backend import audit, clock
+from backend import audit, clock, events
 from backend import orchestrator as O
 from backend.config import DATA_DIR, MOCK_DIR, integration_modes, settings
 from backend.flows import chat, duplicate, missing_package, photo, price_drop, return_window  # noqa: F401  (registers approval handlers)
@@ -21,7 +26,8 @@ from backend.triggers import background_loop
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
 
 app = FastAPI(title="Snapback")
-app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"])
+app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
+                   expose_headers=["X-Audit-Head-Seq"])
 for sub in ("uploads", "reminders"):
     (DATA_DIR / sub).mkdir(parents=True, exist_ok=True)
 app.mount("/photos", StaticFiles(directory=str(MOCK_DIR / "photos")), name="photos")
@@ -131,10 +137,79 @@ def answer(approval_id: str, body: Answer):
 # ---------------- audit ----------------
 
 @app.get("/api/audit")
-def audit_entries(task_id: str = None, limit: int = 200):
+def audit_entries(response: Response, task_id: str = None, limit: int = 200, since_seq: Optional[int] = None):
+    """Entries for a task, the latest N, or (polling fallback for /api/stream) everything after since_seq,
+    oldest first. X-Audit-Head-Seq is the chain head: if it's below your since_seq, the trail was reset."""
+    if since_seq is not None:
+        response.headers["X-Audit-Head-Seq"] = str(audit.head_seq())
+        rows = audit.entries_since(since_seq, limit=max(limit, 500))
+        if task_id:
+            rows = [r for r in rows if r.get("task_id") == task_id]
+        return audit.with_provenance(rows)
     if task_id:
-        return audit.entries_for_task(task_id)
-    return db().select("audit_log", order_by="seq DESC", limit=limit)
+        return audit.with_provenance(audit.entries_for_task(task_id))
+    return audit.with_provenance(db().select("audit_log", order_by="seq DESC", limit=limit))
+
+
+def _server_exiting() -> bool:
+    """True once uvicorn has been asked to stop (e.g. --reload): open streams must end or the reload waits."""
+    srv = getattr(signal.getsignal(signal.SIGTERM), "__self__", None)
+    return bool(getattr(srv, "should_exit", False))
+
+
+def _sse(eid: int, data: Dict[str, Any]) -> str:
+    return f"id: {eid}\ndata: {json.dumps(data, default=str, separators=(',', ':'))}\n\n"
+
+
+@app.get("/api/stream")
+async def stream(request: Request, since_seq: Optional[int] = None):
+    """Server-Sent Events: every new audit entry and task status change as it is written.
+
+    Every event is a default `message` with a JSON `type`: hello | audit | task | reset | tampered | resync.
+    ?since_seq=N first replays the sealed entries after N. Reconnects resume from Last-Event-ID.
+    """
+    last = request.headers.get("last-event-id", "")
+    resume = int(last) if last.isdigit() else None
+
+    async def gen():
+        cursor = resume if resume is not None else events.current_id()
+        sent_seq = 0
+        yield "retry: 1500\n\n"
+        if resume is None and since_seq is not None:
+            for r in await run_in_threadpool(audit.entries_since, since_seq, 2000):
+                v = audit.stream_view(r)
+                sent_seq = max(sent_seq, v["seq"])
+                yield _sse(cursor, v)
+        if resume is None:
+            yield _sse(cursor, {"type": "hello", "head_seq": await run_in_threadpool(audit.head_seq),
+                                "boot_id": events.BOOT_ID})
+        opened = last_beat = time.time()
+        while not _server_exiting() and time.time() - opened < 600:   # the client reconnects after 10 min
+            if await request.is_disconnected():
+                break
+            evs, missed = events.since(cursor)
+            if missed:
+                cursor = events.current_id()
+                yield _sse(cursor, {"type": "resync", "reason": "events were missed; refetch /api/audit?since_seq=N"})
+                continue
+            for eid, data in evs:
+                cursor = eid
+                if data["type"] == "reset":
+                    sent_seq = 0
+                elif data["type"] == "audit":
+                    if data["seq"] <= sent_seq:
+                        continue          # already replayed from the database
+                    sent_seq = data["seq"]
+                yield _sse(eid, data)
+            if evs:
+                last_beat = time.time()
+            elif time.time() - last_beat > 15:
+                last_beat = time.time()
+                yield ": ping\n\n"
+            await asyncio.sleep(0.25)
+
+    return StreamingResponse(gen(), media_type="text/event-stream",
+                             headers={"Cache-Control": "no-cache", "X-Accel-Buffering": "no"})
 
 
 @app.get("/api/audit/verify")
@@ -214,6 +289,7 @@ def demo_reset(stage: bool = True, wait_s: float = 19.0):
                      ("returns defective items return window refund", "northwind-audio")):
         warm.submit(senso.query, q, store)
     with background_loop.LOOP_LOCK:
+        events.publish({"type": "reset", "at": clock.iso(clock.now()).replace(" ", "T")})
         out = reset_all(stage=stage)
     seeded_s = round(time.time() - t0, 1)
     if not stage:
@@ -237,6 +313,27 @@ def demo_reset(stage: bool = True, wait_s: float = 19.0):
             **{k: out[k] for k in ("orders", "catalog", "db_backend")}}
 
 
+class CalendarMode(BaseModel):
+    mode: Optional[str] = None      # auto | mock | ics; null restores CALENDAR_MODE from .env
+
+
+@app.get("/api/demo/calendar")
+def calendar_mode_get():
+    from backend.actions import calendar
+    return {"mode": calendar.current_mode(), "calendar": settings.calendar_name,
+            "mock_calendar_url": f"{settings.merchant_base_url}/calendar"}
+
+
+@app.post("/api/demo/calendar")
+def calendar_mode_set(body: CalendarMode):
+    """Where drop-off reminders go. Test runners switch to `mock` so they don't fill the real Calendar."""
+    from backend.actions import calendar
+    try:
+        return {"mode": calendar.set_mode(body.mode)}
+    except ValueError as e:
+        raise HTTPException(400, str(e))
+
+
 @app.post("/api/demo/trigger")
 def demo_trigger(body: Trigger):
     from backend import rules
@@ -257,5 +354,6 @@ def demo_trigger(body: Trigger):
         r = rows[0]
         # edit a sealed row WITHOUT re-hashing: verification must now fail at this seq
         db().update("audit_log", "entry_id", r["entry_id"], {"decision": (r.get("decision") or "") + " (edited after sealing)"})
+        events.publish({"type": "tampered", "seq": int(r["seq"]), "task_id": r.get("task_id")})
         return {"ok": True, "tampered_seq": r["seq"], "task_id": r.get("task_id"), "verify": audit.verify_chain()}
     raise HTTPException(400, f"unknown trigger kind {body.kind}")

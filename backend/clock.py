@@ -25,6 +25,11 @@ def now() -> datetime:
     return datetime.utcnow() + timedelta(hours=_offset_hours())
 
 
+def local_now() -> datetime:
+    """Naive local wall-clock time (this Mac's time zone), shifted by the demo clock offset."""
+    return datetime.now() + timedelta(hours=_offset_hours())
+
+
 def today() -> date:
     # Demo runs in PT; dates shown to the user are PT calendar dates.
     return (now() - timedelta(hours=8)).date()

@@ -14,7 +14,7 @@ import uuid
 from datetime import date
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
-from backend import audit, clock, rules, verifier
+from backend import audit, clock, events, rules, verifier
 from backend.actions import calendar, returns_portal
 from backend.config import settings
 from backend.integrations import amplitude, persona
@@ -48,7 +48,15 @@ def create_task(trigger_type: str, order_id: Optional[str], *, title: str, summa
             "idempotency_key": idempotency_key or tid, "created_at": now, "updated_at": now, "authorized_by": None,
             "details": {"title": title, "summary": summary, "amount_usd": amount_usd, **details},
         })
+        _publish_task(tid, trigger_type, status, None, None, title, summary, now)
         return tid, True
+
+
+def _publish_task(tid: str, trigger_type: Optional[str], status: str, prev: Optional[str], decision: Optional[str],
+                  title: Optional[str], summary: Optional[str], at: Any) -> None:
+    events.publish({"type": "task", "task_id": tid, "trigger_type": trigger_type, "status": status,
+                    "prev_status": prev, "decision": decision, "title": title, "summary": summary,
+                    "updated_at": at.isoformat() if hasattr(at, "isoformat") else at})
 
 
 def get_task(tid: str) -> Optional[Dict[str, Any]]:
@@ -68,6 +76,9 @@ def update_task(tid: str, *, status: Optional[str] = None, decision: Optional[st
             if v is not None:
                 fields[k] = v
         db().update("tasks", "task_id", tid, fields)
+        if status is not None and status != t.get("status"):
+            _publish_task(tid, t.get("trigger_type"), status, t.get("status"), fields.get("decision", t.get("decision")),
+                          d.get("title"), d.get("summary"), fields["updated_at"])
 
 
 def set_order_status(order_id: str, status: str) -> None:
@@ -222,6 +233,10 @@ def answer_approval(aid: str, option_id: str, client_inquiry_id: Optional[str] =
         else:
             handler(a["task_id"], aid, opt)
             status = (get_task(a["task_id"]) or {}).get("status", status)
+    elif action == "execute":
+        # never leave a task silently stuck in `executing`
+        fail(a["task_id"], f"No handler for {t.get('trigger_type')} approvals", authorized_by=f"approval:{aid}")
+        status = "failed"
     return {"task_id": a["task_id"], "status": status, "persona_inquiry_id": inquiry_id, "choice": option_id}
 
 
@@ -258,13 +273,22 @@ def execute_return(tid: str, order: Dict[str, Any], reason_code: str, authorized
          authorized_by=authorized_by, model="playwright", track={"store": order["store"], "rma": res["rma"]})
     set_order_status(order["order_id"], "returned")
     by = date.fromisoformat(res["drop_off_by"])
-    rem = calendar.add_dropoff_reminder(tid, f"Drop off {order['item_name']} return ({res['rma']})", by)
-    step(tid, "reminder_added", f"Drop-off reminder for {rem['remind_on']} (deadline {by})",
-         reason="A calendar reminder makes sure the package is dropped off before the label expires.",
-         inputs=rem, sources=[{"doc": "Return label", "section": res["rma"], "url": res.get("label_url"),
-                               "retrieved_at": clock.iso(clock.now())}], authorized_by=authorized_by)
+    rem = calendar.add_dropoff_reminder(tid, item=order["item_name"], store_name=rules.STORE_NAMES.get(order["store"], order["store"]),
+                                        rma=res["rma"], label_url=res.get("label_url"), by=by)
+    where = {"apple_calendar": "Apple Calendar", "mock": "Snapback mock calendar", "ics": ".ics file"}[rem["method"]]
+    fell_back = [a for a in rem["attempts"] if not a["ok"]]
+    step(tid, "reminder_added", f"“{rem['title']}” · {rem['time_label']} · {where} (deadline {by})",
+         reason=("A 30-minute drop-off slot before the deadline, with a 1-hour alert, so the package goes out before the label expires."
+                 + (f" Apple Calendar wasn't reachable ({fell_back[0]['error'][:80]}), so it went to the fallback." if fell_back else "")),
+         inputs={k: rem.get(k) for k in ("method", "title", "date", "start", "end", "alarm_minutes_before", "calendar",
+                                          "event_id", "view_switched", "calendar_url", "ics_url", "task_url", "drop_off_by",
+                                          "attempts")},
+         sources=[{"doc": "Return label", "section": res["rma"], "url": res.get("label_url"),
+                   "retrieved_at": clock.iso(clock.now())}],
+         authorized_by=authorized_by, model=rem["model"], verified=rem["method"] != "ics")
     update_task(tid, rma=res["rma"], label_url=res.get("label_url"), refund_expected=res["refund_amount"],
-                ics_url=rem["ics_url"])
+                ics_url=rem["ics_url"], reminder={k: rem.get(k) for k in ("method", "title", "start", "time_label",
+                                                                          "calendar_url", "ics_url")})
     return res
 
 

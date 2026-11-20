@@ -327,6 +327,27 @@ def _render_order_email(o: Dict[str, Any], customer: Dict[str, Any], today: date
     )
 
 
+
+# ---------- calendar (fallback for drop-off reminders; Apple Calendar is the primary) ----------
+
+def calendar_events() -> List[Dict[str, Any]]:
+    return _read(STATE / "calendar.json", [])
+
+
+def add_calendar_event(ev: Dict[str, Any]) -> "tuple[Dict[str, Any], bool]":
+    """One event per task (idempotent). Returns (event, already_existed)."""
+    with _lock:
+        evs = calendar_events()
+        hit = next((e for e in evs if ev.get("task_id") and e.get("task_id") == ev["task_id"]), None)
+        if hit:
+            return hit, True
+        ev = {**ev, "event_id": f"evt_{uuid.uuid4().hex[:10]}",
+              "created_at": datetime.utcnow().isoformat(timespec="seconds") + "Z"}
+        evs.append(ev)
+        _write(STATE / "calendar.json", evs)
+        return ev, False
+
+
 # ---------- reset / staging ----------
 
 def reset_world(stage_demo: bool = True, refund_delay_seconds: int = 10) -> Dict[str, Any]:

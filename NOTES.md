@@ -41,5 +41,14 @@ Conflicts between `generalcontext.md` and sponsor docs, plus build decisions. Sp
   3. Allocate 100%, split 50/50, then Start.
 - **Duplicate detection:** same SKU on the same day, ignoring orders Snapback placed itself. The seeded bottle pair is now on different days (a negative test), so a fresh reset shows exactly two cards.
 
+## Block 4: live stream + calendar
+- **`/api/stream` (SSE) uses an in-process ring buffer** fed by `audit.append` and task status changes. Ids are microsecond timestamps, so they stay monotonic across `--reload`. A stale `Last-Event-ID` → `resync` → the client refetches `/api/audit?since_seq=N`. Streams end when uvicorn starts shutting down (read through the installed SIGTERM handler's `should_exit`); otherwise an open EventSource would block every reload.
+- **`provider` is derived, not stored:** a pure function of sealed fields (step, model label, inputs, sources), so no schema or hash change, and the stream and `/api/audit` agree.
+- **Fixed: chat tasks reuse the photo flow** after the match, but their approvals had no handler, so an over-cap buy from chat sat in `executing` forever. The `chat` handler is now registered, and an `execute` answer with no handler fails the task loudly.
+- **Calendar:**
+  - Apple Calendar via `osascript - <argv>`: calendar created if missing, idempotent per task id (searched in the notes).
+  - Slot: the next half-hour at least 1 h out (so the alert is still ahead), 9:00–18:00, no Sundays, on or before the deadline; otherwise ASAP.
+  - The first call triggers the macOS Automation (TCC) prompt for the app hosting the dev servers, and the 15 s timeout falls back to the mock calendar until it's allowed.
+
 ## Sponsor doc conflicts
 - SIE `api.md` documents the self-hosted server (raw slashes in model paths, msgpack default). Hosted needs URL-encoded model IDs and JSON. We follow the hosted examples.

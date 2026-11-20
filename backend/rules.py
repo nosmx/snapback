@@ -16,6 +16,10 @@ from backend.config import ROOT
 Rule = Dict[str, Any]
 
 
+STORE_NAMES = {"northwind-audio": "Northwind Audio", "juniper-home": "Juniper Home",
+               "kestrel-outdoors": "Kestrel Outdoors", "larkspur-supply": "Larkspur Supply Co."}
+
+
 def check(rule: str, passed: bool, evidence: str) -> Rule:
     return {"rule": rule, "passed": bool(passed), "evidence": evidence}
 

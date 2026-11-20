@@ -65,6 +65,12 @@ class Settings(BaseSettings):
     await_refund_seconds: int = 20      # how long a flow waits for the refund before handing off to the loop
     playwright_slow_mo_ms: int = 150    # visible but quick browser actions on stage
     firedrill_api_key: str = ""
+    app_base_url: str = "http://localhost:5173"   # task links in reminders
+    # Drop-off reminders: auto = macOS Calendar via AppleScript -> mock calendar (:8001/calendar) -> .ics
+    #                     mock = skip Apple Calendar (tests) · ics = file only
+    calendar_mode: str = "auto"
+    calendar_name: str = "Snapback"
+    calendar_show: bool = True          # bring Calendar to the front on the event's date
 
 
 settings = Settings()

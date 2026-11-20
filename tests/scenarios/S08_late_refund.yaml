@@ -5,7 +5,7 @@ setup:
 steps:
   - answer: {card: deadline, option: return}
   - wait: {status: [awaiting_refund], timeout: 30}
-  - sleep: 12
+  - sleep: 28        # in-thread wait (20 s) gives up first; the refund posts at 26 s
   - loop: true
   - wait: {status: [done], timeout: 10}
 expect:

@@ -183,13 +183,19 @@ def main() -> int:
         print(f"backend not reachable at {API}: {e}")
         return 2
     print("integrations:", health["integrations"])
-    for name, fn in (("g  background loop (no user input)", flow_g), ("a  photo → return + replacement", flow_a),
-                     ("b  major drop → price match", flow_b), ("e  same approval answered twice", flow_e),
-                     ("c  major drop → return & rebuy", flow_c), ("d  return window → return", flow_d),
-                     ("f  tamper → broken; reset → ok", flow_f)):
-        run(name, fn)
-        n, ok, dt, detail = results[-1]
-        print(f"  {'PASS' if ok else 'FAIL'}  {dt:5.1f}s  {n:36} {detail}", flush=True)
+    # drop-off reminders go to the mock calendar during the run, not the real macOS Calendar
+    cal_mode = c.get("/api/demo/calendar").json().get("mode")
+    c.post("/api/demo/calendar", json={"mode": "mock"})
+    try:
+        for name, fn in (("g  background loop (no user input)", flow_g), ("a  photo → return + replacement", flow_a),
+                         ("b  major drop → price match", flow_b), ("e  same approval answered twice", flow_e),
+                         ("c  major drop → return & rebuy", flow_c), ("d  return window → return", flow_d),
+                         ("f  tamper → broken; reset → ok", flow_f)):
+            run(name, fn)
+            n, ok, dt, detail = results[-1]
+            print(f"  {'PASS' if ok else 'FAIL'}  {dt:5.1f}s  {n:36} {detail}", flush=True)
+    finally:
+        c.post("/api/demo/calendar", json={"mode": cal_mode})
     passed = sum(1 for r in results if r[1])
     print(f"\n{passed}/{len(results)} passed")
     return 0 if passed == len(results) else 1

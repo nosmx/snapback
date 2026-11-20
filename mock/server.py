@@ -464,6 +464,35 @@ def api_inbox():
     return _emails()
 
 
+# ---------------- calendar (drop-off reminder fallback) ----------------
+
+@app.get("/calendar", response_class=HTMLResponse)
+def calendar_page(request: Request):
+    return T.TemplateResponse(request, "calendar.html", {})
+
+
+@app.get("/calendar/events.json")
+def calendar_events_json():
+    return W.calendar_events()
+
+
+@app.post("/calendar/events")
+async def calendar_add(request: Request):
+    body = await request.json()
+    try:
+        start, end = datetime.fromisoformat(body["start"]), datetime.fromisoformat(body["end"])
+    except (KeyError, TypeError, ValueError):
+        raise HTTPException(400, "start and end must be ISO datetimes")
+    if not body.get("title") or end <= start:
+        raise HTTPException(400, "title required and end must be after start")
+    ev, already = W.add_calendar_event({
+        "task_id": body.get("task_id"), "title": str(body["title"])[:200], "notes": str(body.get("notes") or "")[:2000],
+        "location": str(body.get("location") or "")[:200], "calendar": body.get("calendar") or "Snapback",
+        "start": start.isoformat(timespec="minutes"), "end": end.isoformat(timespec="minutes"),
+        "alarm_minutes_before": int(body.get("alarm_minutes_before") or 0)})
+    return {**ev, "already": already, "url": f"{W.MERCHANT_BASE_URL}/calendar?date={ev['start'][:10]}#{ev['event_id']}"}
+
+
 @app.get("/inbox", response_class=HTMLResponse)
 def inbox(request: Request):
     return _page(request, "inbox.html", emails=_emails())
