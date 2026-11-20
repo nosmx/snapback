@@ -1,6 +1,6 @@
 // The ONLY data-access module. Flip USE_MOCK to switch between the in-browser mock world and the FastAPI backend.
 // (Override without editing: VITE_USE_MOCK=false npm run dev)
-import type { Approval, AuditEntry, ChainCheck, DemoTrigger, Mandate, Order, Task } from './types'
+import type { Approval, AuditEntry, ChainCheck, DemoTrigger, Mandate, MandateRules, Order, Task } from './types'
 import { mockApi } from './mock'
 import { MOCK_MANDATE } from './mock-mandate'
 import { verifyEntries } from './chain'
@@ -229,6 +229,7 @@ export async function uploadPhoto(file: File | null): Promise<string> {
 }
 
 export async function demoReset() {
+  if (USE_MOCK) mockMandateState = MOCK_MANDATE
   await (USE_MOCK ? mockApi.demoReset() : liveApi.demoReset())
   notifyChange()
 }
@@ -237,10 +238,107 @@ export async function demoTrigger(kind: DemoTrigger) {
   notifyChange()
 }
 
-/** Standing rules (read-only in the UI). Live: GET /api/mandate → {user_id, rules, verified_by, persona_inquiry_id, verified_at}. */
-export async function getMandate(): Promise<Mandate> {
-  if (USE_MOCK) return MOCK_MANDATE
-  const r = await http<Raw>('/api/mandate')
+// ---------------- live agent activity (global audit log) ----------------
+export type FeedMode = 'stream' | 'polling' | 'demo' | 'offline'
+
+/**
+ * Subscribe to new audit entries across all tasks, oldest → newest per batch.
+ * Live: backlog from GET /api/audit, then GET /api/stream (SSE). If the stream is missing or fails,
+ * fall back to polling GET /api/audit?since_seq=N every 0.7 s. Mock: watches the in-browser chain.
+ * Calls onReset when the chain restarts (e.g. demo reset), so the caller can clear its list.
+ */
+export function subscribeAudit(h: { onEntries: (rows: AuditEntry[]) => void; onReset?: () => void; onMode?: (m: FeedMode) => void }): () => void {
+  let last = 0
+  let lastHash = ''
+  let stopped = false
+  let timer: number | undefined
+  let es: EventSource | null = null
+
+  const deliver = (rows: AuditEntry[]) => {
+    if (stopped) return
+    const sorted = rows.filter((r) => typeof r.seq === 'number' && !Number.isNaN(r.seq)).sort((a, b) => a.seq! - b.seq!)
+    if (!sorted.length) return
+    const atLast = sorted.find((r) => r.seq === last)
+    if (last && (sorted[sorted.length - 1].seq! < last || (atLast && atLast.entry_hash !== lastHash))) {
+      last = 0
+      lastHash = ''
+      h.onReset?.()
+    }
+    const fresh = sorted.filter((r) => r.seq! > last)
+    if (!fresh.length) return
+    last = fresh[fresh.length - 1].seq!
+    lastHash = fresh[fresh.length - 1].entry_hash
+    h.onEntries(fresh)
+  }
+
+  if (USE_MOCK) {
+    h.onMode?.('demo')
+    const tick = async () => deliver(await mockApi.getAuditAll())
+    tick()
+    timer = window.setInterval(tick, 700)
+    window.addEventListener(CHANGED_EVENT, tick)
+    return () => {
+      stopped = true
+      window.clearInterval(timer)
+      window.removeEventListener(CHANGED_EVENT, tick)
+    }
+  }
+
+  const poll = async () => {
+    try {
+      deliver((await http<Raw[]>(`/api/audit?since_seq=${last}&limit=200`)).map(normAudit))
+      if (!es) h.onMode?.('polling')
+    } catch {
+      h.onMode?.('offline')
+    }
+  }
+  const startPolling = () => {
+    if (stopped || timer !== undefined) return
+    timer = window.setInterval(poll, 700)
+  }
+  const onMessage = (ev: MessageEvent) => {
+    try {
+      const d = JSON.parse(ev.data)
+      deliver((Array.isArray(d) ? d : [d]).map(normAudit))
+    } catch {
+      /* not an audit entry */
+    }
+  }
+
+  poll().then(() => {
+    if (stopped) return
+    if (typeof EventSource === 'undefined') return startPolling()
+    let opened = false
+    es = new EventSource(`${BASE}/api/stream`)
+    es.onopen = () => {
+      opened = true
+      h.onMode?.('stream')
+    }
+    es.onmessage = onMessage
+    es.addEventListener('audit', onMessage as EventListener)
+    es.onerror = () => {
+      if (!es) return
+      if (!opened || es.readyState === EventSource.CLOSED) {
+        es.close()
+        es = null
+        startPolling()
+      }
+    }
+  })
+
+  return () => {
+    stopped = true
+    es?.close()
+    window.clearInterval(timer)
+  }
+}
+
+// ---------------- standing rules (mandate) ----------------
+// Mock rules live in memory, so every reload starts from the default rules (like the rest of the demo).
+let mockMandateState: Mandate = MOCK_MANDATE
+const mockMandate = () => mockMandateState
+
+function normMandate(r: Raw): Mandate {
   return {
     user_id: str(r.user_id),
     verified_by: r.verified_by ? str(r.verified_by) : null,
@@ -248,6 +346,27 @@ export async function getMandate(): Promise<Mandate> {
     verified_at: tsOrNull(r.verified_at),
     rules: parse(r.rules) as Mandate['rules'],
   }
+}
+
+/** Live: GET /api/mandate → {user_id, rules, verified_by, persona_inquiry_id, verified_at}. */
+export async function getMandate(): Promise<Mandate> {
+  if (USE_MOCK) return mockMandate()
+  return normMandate(await http<Raw>('/api/mandate'))
+}
+
+/**
+ * Save edited rules. The UI runs the Persona confirmation first.
+ * Live: PUT /api/mandate {rules} → the updated mandate (see API_NEEDS.md).
+ */
+export async function updateMandate(rules: MandateRules): Promise<Mandate> {
+  if (USE_MOCK) {
+    mockMandateState = { ...mockMandate(), rules, verified_by: 'persona', persona_inquiry_id: mockInquiryId(), verified_at: new Date().toISOString() }
+    notifyChange()
+    return mockMandateState
+  }
+  const r = await http<Raw>('/api/mandate', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ rules }) })
+  notifyChange()
+  return normMandate(r)
 }
 
 let lastInquiry = ''

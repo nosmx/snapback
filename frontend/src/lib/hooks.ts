@@ -37,6 +37,19 @@ export function usePoll<T>(fn: () => Promise<T>, ms: number, deps: unknown[] = [
   return { data, error, refresh: tick }
 }
 
+/** True while the media query matches (e.g. '(min-width: 1100px)'). */
+export function useMediaQuery(query: string) {
+  const [match, setMatch] = useState(() => window.matchMedia(query).matches)
+  useEffect(() => {
+    const mq = window.matchMedia(query)
+    const on = () => setMatch(mq.matches)
+    on()
+    mq.addEventListener('change', on)
+    return () => mq.removeEventListener('change', on)
+  }, [query])
+  return match
+}
+
 /** Re-render every `ms` so relative times ("2 min ago") stay fresh. */
 export function useNow(ms = 30_000) {
   const [now, setNow] = useState(() => Date.now())

@@ -1,106 +1,97 @@
-import type { ReactNode } from 'react'
 import {
-  BadgeDollarSign, BellRing, BookOpen, Calculator, CalendarClock, CalendarPlus, Camera, CircleAlert, Copy,
-  FileCheck2, Fingerprint, Link2, ListOrdered, Loader2, MessageCircle, PackageX, Radar, Receipt, RefreshCw,
-  Scale, ScanSearch, ShieldCheck, ShoppingCart, TrendingDown, Undo2, type LucideIcon,
+  BadgeDollarSign, BellRing, BookOpen, Calculator, CalendarClock, CalendarPlus, Camera, Copy, FileCheck2, Fingerprint,
+  Link2, ListOrdered, MessageCircle, PackageX, Radar, Receipt, RefreshCw, Scale, ScanSearch, ShieldCheck, ShoppingCart,
+  TrendingDown, Undo2, type LucideIcon,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
-import type { TaskStatus, TriggerType } from '@/lib/types'
+import type { Approval, Task, TaskStatus, TriggerType } from '@/lib/types'
 
-export const TRIGGER: Record<TriggerType, { label: string; icon: LucideIcon; tone: string }> = {
-  photo: { label: 'Photo', icon: Camera, tone: 'bg-info/15 text-info' },
-  chat: { label: 'Chat', icon: MessageCircle, tone: 'bg-info/15 text-info' },
-  price_drop_minor: { label: 'Price drop', icon: TrendingDown, tone: 'bg-money/15 text-money' },
-  price_drop_major: { label: 'Major price drop', icon: TrendingDown, tone: 'bg-warn/15 text-warn' },
-  return_window: { label: 'Return window', icon: CalendarClock, tone: 'bg-warn/15 text-warn' },
-  missing_package: { label: 'Missing package', icon: PackageX, tone: 'bg-info/15 text-info' },
-  duplicate: { label: 'Duplicate order', icon: Copy, tone: 'bg-white/8 text-muted' },
-}
-
-export type Tone = 'money' | 'warn' | 'danger' | 'info' | 'neutral'
-const TONE: Record<Tone, string> = {
-  money: 'bg-money/14 text-money',
-  warn: 'bg-warn/14 text-warn',
-  danger: 'bg-danger/14 text-danger',
-  info: 'bg-info/14 text-info',
-  neutral: 'bg-white/7 text-muted',
-}
-
-export function Pill({ tone = 'neutral', className, children }: { tone?: Tone; className?: string; children: ReactNode }) {
-  return (
-    <span className={cn('inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[13px] font-semibold whitespace-nowrap [&>svg]:size-3.5', TONE[tone], className)}>
-      {children}
-    </span>
-  )
-}
-
-const STATUS: Record<TaskStatus, { label: string; tone: Tone; spin?: boolean }> = {
-  detected: { label: 'Detected', tone: 'info', spin: true },
-  awaiting_user: { label: 'Needs you', tone: 'warn' },
-  planned: { label: 'Planned', tone: 'info', spin: true },
-  executing: { label: 'Working', tone: 'info', spin: true },
-  verifying: { label: 'Verifying', tone: 'info', spin: true },
-  awaiting_refund: { label: 'Awaiting refund', tone: 'info', spin: true },
-  done: { label: 'Done', tone: 'money' },
-  expired: { label: 'Expired', tone: 'neutral' },
-  failed: { label: 'Failed', tone: 'danger' },
-}
-
-export function StatusBadge({ status, className }: { status: TaskStatus; className?: string }) {
-  const s = STATUS[status] ?? STATUS.detected
-  return (
-    <Pill tone={s.tone} className={className}>
-      {s.spin && <Loader2 className="animate-spin" />}
-      {status === 'done' && <ShieldCheck />}
-      {status === 'failed' && <CircleAlert />}
-      {s.label}
-    </Pill>
-  )
+export const TRIGGER: Record<TriggerType, { label: string; icon: LucideIcon }> = {
+  photo: { label: 'Photo', icon: Camera },
+  chat: { label: 'Chat', icon: MessageCircle },
+  price_drop_minor: { label: 'Price drop', icon: TrendingDown },
+  price_drop_major: { label: 'Price drop', icon: TrendingDown },
+  return_window: { label: 'Return window', icon: CalendarClock },
+  missing_package: { label: 'Missing package', icon: PackageX },
+  duplicate: { label: 'Duplicate order', icon: Copy },
 }
 
 export const isActive = (s: TaskStatus) => ['detected', 'planned', 'executing', 'verifying', 'awaiting_refund'].includes(s)
+
+export const STATUS_TEXT: Record<TaskStatus, string> = {
+  detected: 'Starting',
+  awaiting_user: 'Needs you',
+  planned: 'Planned',
+  executing: 'In progress',
+  verifying: 'Confirming',
+  awaiting_refund: 'Waiting for refund',
+  done: 'Done',
+  expired: 'Expired',
+  failed: 'Failed',
+}
+
+/** Activity segments. */
+export function categoryOf(t: Task): 'returns' | 'price' | 'claims' {
+  if (t.trigger_type.startsWith('price_drop')) return 'price'
+  const d = t.decision ?? ''
+  if (t.trigger_type === 'missing_package' || /claim|warranty/.test(d)) return 'claims'
+  return 'returns'
+}
 
 const STEPS: Record<string, { label: string; icon: LucideIcon }> = {
   task_detected: { label: 'Detected', icon: Radar },
   intent_classified: { label: 'Understood your message', icon: MessageCircle },
   photo_identified: { label: 'Identified the item', icon: ScanSearch },
-  order_matched: { label: 'Matched the order', icon: Link2 },
+  order_matched: { label: 'Found your order', icon: Link2 },
   policy_retrieved: { label: 'Checked store policy', icon: BookOpen },
-  options_computed: { label: 'Computed options', icon: Calculator },
+  options_computed: { label: 'Compared options', icon: Calculator },
   decision_made: { label: 'Decided', icon: Scale },
   user_notified: { label: 'Asked you', icon: BellRing },
-  user_approved: { label: 'You decided', icon: Fingerprint },
+  user_approved: { label: 'You approved', icon: Fingerprint },
   price_rechecked: { label: 'Re-checked the price', icon: RefreshCw },
   return_filed: { label: 'Filed the return', icon: Undo2 },
   claim_filed: { label: 'Filed the claim', icon: FileCheck2 },
-  adjustment_filed: { label: 'Filed price adjustment', icon: Receipt },
-  replacement_ranked: { label: 'Ranked replacements', icon: ListOrdered },
+  adjustment_filed: { label: 'Requested the refund', icon: Receipt },
+  replacement_ranked: { label: 'Chose a replacement', icon: ListOrdered },
   order_placed: { label: 'Placed the order', icon: ShoppingCart },
   reminder_added: { label: 'Added a reminder', icon: CalendarPlus },
-  verified: { label: 'Verified the outcome', icon: ShieldCheck },
+  verified: { label: 'Confirmed', icon: ShieldCheck },
+  email_ingested: { label: 'Read an order email', icon: FileCheck2 },
+  mandate_verified: { label: 'Rules verified', icon: Fingerprint },
+  mandate_updated: { label: 'Rules updated', icon: Fingerprint },
   refund_received: { label: 'Refund received', icon: BadgeDollarSign },
 }
 
 export function stepMeta(step: string): { label: string; icon: LucideIcon } {
   if (STEPS[step]) return STEPS[step]
-  const label = step.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase())
-  return { label, icon: Radar }
+  return { label: step.replace(/_/g, ' ').replace(/^\w/, (c) => c.toUpperCase()), icon: Radar }
 }
 
 export function authorizedLabel(a: string | null): { title: string; detail?: string; kind: 'approval' | 'mandate' | 'system' } {
   if (!a) return { title: 'System', kind: 'system' }
-  if (a.startsWith('approval')) return { title: 'Your approval, Persona-verified', detail: a.replace(/^approval[.:]?/, ''), kind: 'approval' }
-  if (a.startsWith('mandate')) return { title: 'Your standing rules', detail: a.replace(/^mandate[.:]?/, ''), kind: 'mandate' }
-  if (a === 'user') return { title: 'You (one tap)', detail: 'no money moved, so no verification needed', kind: 'system' }
-  if (a === 'verifier') return { title: 'Independent verifier', detail: 'checks outside evidence, never the executor’s claim', kind: 'system' }
-  if (a === 'background_loop') return { title: 'Background monitor', detail: 'detection only — no action taken at this step', kind: 'system' }
+  if (a.startsWith('approval')) return { title: 'You, verified with Persona', detail: a.replace(/^approval[.:]?/, ''), kind: 'approval' }
+  if (a.startsWith('mandate')) return { title: 'Your rules', detail: a.replace(/^mandate[.:]?/, ''), kind: 'mandate' }
+  if (a === 'user') return { title: 'You (no money moved)', kind: 'system' }
+  if (a === 'verifier') return { title: 'Independent check', detail: 'outside evidence, not the agent’s own claim', kind: 'system' }
+  if (a === 'background_loop') return { title: 'Background monitor', detail: 'detection only', kind: 'system' }
   return { title: a, kind: 'system' }
 }
 
-export function ProductImage({ src, alt = '', className }: { src?: string | null; alt?: string; className?: string }) {
+/** Last word of the product name: "Vortex Blender" → "Blender". */
+export const shortName = (name?: string) => (name ? name.split(' ').slice(-1)[0] : 'Item')
+
+export function Thumb({ src, className }: { src?: string | null; className?: string }) {
   return src ? (
-    <img src={src} alt={alt} loading="lazy" className={cn('shrink-0 bg-white object-cover ring-1 ring-white/10', className)} />
+    <img src={src} alt="" loading="lazy" className={cn('size-12 shrink-0 rounded-[10px] bg-white object-cover ring-1 ring-black/5', className)} />
   ) : (
-    <div className={cn('bg-surface-3 shrink-0', className)} />
+    <div className={cn('bg-fill size-12 shrink-0 rounded-[10px]', className)} />
   )
+}
+
+/** One-line summary of a pending decision, e.g. "Blender price dropped $30". */
+export function decisionLine(a: Approval, t: Task) {
+  const n = shortName(t.order?.item_name)
+  if (a.price_math) return `${n} price dropped $${Math.round(a.price_math.paid_usd - a.price_math.current_usd)}`
+  if (a.deadline) return `${n} return closes in ${a.deadline.days_left} days`
+  return t.title
 }

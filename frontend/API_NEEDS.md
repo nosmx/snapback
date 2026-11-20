@@ -73,6 +73,28 @@ Return immediately and run the flow asynchronously. The `/snap` stepper polls `G
 | Ordering replacement | `replacement_ranked`, `order_placed` |
 | Verifying | `verified` / `refund_received` |
 
+### 5b. `PUT /api/mandate` with body `{ "rules": { …same shape as GET /api/mandate → rules… } }` → the updated mandate
+The Rules tab is now editable. The UI runs the Persona confirmation, then sends the full `rules` object.
+- Return the same shape as `GET /api/mandate`, with a new `persona_inquiry_id` and `verified_at`.
+- Write a `mandate_updated` audit entry with the old → new values and `authorized_by: "approval:<persona_inquiry_id>"`.
+- Use the new rules for every decision from then on. If they're cached from `mandate.yaml` at startup, reload them.
+- Fields the UI edits: `require_approval_over_usd`, `replacement.max_extra_spend_usd`, `replacement.enabled`, `price_drop.auto_adjust_minor`, `price_drop.major_if.{min_percent,min_usd}`, `auto_return_defective`, `return_window_alert_days`, `auto_missing_package_claim`, `allowed_stores`.
+- Until this endpoint exists, saving in live mode shows "Couldn't save your rules". Mock mode saves in the browser.
+
+### 5c. Live "Agent activity" feed (desktop panel beside the phone)
+- **Preferred: `GET /api/stream`.** Server-Sent Events (`text/event-stream`). Send one event per new `audit_log` row, with `data:` set to the same JSON as an `/api/audit` row. A plain `message` event or an event named `audit` both work, and a JSON array of rows is fine too.
+- **Fallback: `GET /api/audit?since_seq=N&limit=200`.** Return rows with `seq > N`. Today the endpoint ignores `since_seq` and returns the newest 200, which still works because the frontend filters by `seq`, but it's heavier.
+- With no stream (currently a 404), the panel polls every 0.7 s.
+- **Sponsor chips** are read from `model`:
+  - `senso…` → Senso
+  - `fastino/…`, SigLIP, a reranker or `sie` → Superlinked
+  - `singlestore` → SingleStore
+  - `persona…`, or `authorized_by` starting `persona:` / `approval:` → Persona
+  - `statsig` → Statsig
+  - `claude…` or `…llm` → Claude
+  - `playwright` / `browser` → Browser
+- Rows whose `task_id` starts with `tsk_` are clickable and open that task.
+
 ### 6. Demo helpers
 - `POST /api/demo/reset`
 - `POST /api/demo/trigger` with body `{ "kind": "major_price_drop" | "return_window" | "tamper" }`

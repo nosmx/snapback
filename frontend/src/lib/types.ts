@@ -67,7 +67,8 @@ export interface Approval {
   choice?: string | null
   persona_verified?: boolean
   asked_at?: string
-  // Pre-computed facts for the card. Either price math or a deadline.
+  // Pre-computed facts for the card: price math, a deadline, or a free-text line.
+  facts?: string
   price_math?: { paid_usd: number; current_usd: number; drop_pct: number }
   deadline?: { return_by: string; days_left: number; price_usd: number }
 }

@@ -1,45 +1,62 @@
 @import "tailwindcss";
 
-/* Snapback — dark fintech theme. One vivid accent: electric green = money recovered / verified.
-   Amber = needs you. Red = failed / broken chain. */
-@theme {
-  --font-sans: "Inter Variable", Inter, ui-sans-serif, system-ui, -apple-system, sans-serif;
-  --font-mono: ui-monospace, "SF Mono", Menlo, Consolas, monospace;
-
-  --color-bg: #0b0d12;
-  --color-surface: #151923;
-  --color-surface-2: #1c2130;
-  --color-surface-3: #252b3b;
-  --color-line: rgb(255 255 255 / 0.07);
-  --color-line-strong: rgb(255 255 255 / 0.13);
-  --color-ink: #f3f5f9;
-  --color-muted: #8b93a7;
-  --color-faint: #5b6377;
-  --color-money: #3ddc84;
-  --color-money-ink: #06120b;
-  --color-warn: #ffb547;
-  --color-danger: #ff5a5f;
-  --color-info: #8ab4ff;
-
-  --animate-scan: scan 1.6s ease-in-out infinite;
-  @keyframes scan {
-    0%, 100% { transform: translateY(0%); opacity: 0.2; }
-    50% { transform: translateY(calc(var(--scan-h, 200px) - 4px)); opacity: 1; }
-  }
-}
-
+/* Snapback — calm iOS-style theme. Color is used only for meaning:
+   green = money back / verified · amber = needs you · red = problem. */
 :root {
+  --bg: #f2f2f7;
+  --card: #ffffff;
+  --fill: #e9e9ee;
+  --sep: #e5e5ea;
+  --ink: #111111;
+  --ink-2: #6b7280;
+  --ink-3: #a1a1aa;
+  --green: #16a34a;
+  --amber: #f59e0b;
+  --red: #dc2626;
+  --stage: #e7e7ec;
+
   --top-inset: env(safe-area-inset-top, 0px);
   --bottom-inset: env(safe-area-inset-bottom, 0px);
-  --tabbar-h: calc(68px + var(--bottom-inset));
-  color-scheme: dark;
+  --tabbar-h: calc(54px + var(--bottom-inset));
+  color-scheme: light dark;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #000000;
+    --card: #1c1c1e;
+    --fill: #2c2c2e;
+    --sep: #38383a;
+    --ink: #f5f5f7;
+    --ink-2: #98989f;
+    --ink-3: #636366;
+    --green: #22c55e;
+    --amber: #fbbf24;
+    --red: #ef4444;
+    --stage: #111113;
+  }
 }
 @media (min-width: 768px) {
-  /* inside the desktop phone frame: fake status bar + home indicator */
+  /* inside the desktop phone frame: status bar + home indicator */
   :root {
-    --top-inset: 50px;
-    --bottom-inset: 18px;
+    --top-inset: 47px;
+    --bottom-inset: 20px;
   }
+}
+
+@theme inline {
+  --font-sans: -apple-system, BlinkMacSystemFont, "SF Pro Text", "SF Pro", "Inter Variable", Inter, system-ui, sans-serif;
+  --font-mono: ui-monospace, "SF Mono", Menlo, monospace;
+  --color-bg: var(--bg);
+  --color-card: var(--card);
+  --color-fill: var(--fill);
+  --color-sep: var(--sep);
+  --color-ink: var(--ink);
+  --color-ink-2: var(--ink-2);
+  --color-ink-3: var(--ink-3);
+  --color-green: var(--green);
+  --color-amber: var(--amber);
+  --color-red: var(--red);
+  --color-stage: var(--stage);
 }
 
 @layer base {
@@ -48,18 +65,15 @@
   }
   body {
     @apply bg-bg text-ink font-sans antialiased;
-    font-feature-settings: "cv11", "ss01", "ss03";
     -webkit-tap-highlight-color: transparent;
     overscroll-behavior: none;
+    touch-action: manipulation;
   }
   * {
-    @apply border-line;
+    @apply border-sep;
   }
   button {
     cursor: pointer;
-  }
-  ::selection {
-    background: color-mix(in oklab, var(--color-money) 35%, transparent);
   }
 }
 
@@ -70,17 +84,16 @@
   }
 }
 
+/* haptic-like press state */
 @utility tap {
-  transition: transform 120ms ease, background-color 150ms ease, border-color 150ms ease, opacity 150ms ease;
+  transition: transform 160ms ease, background-color 160ms ease, opacity 160ms ease;
   &:active {
-    transform: scale(0.97);
+    transform: scale(0.98);
   }
 }
-
-/* desktop stage behind the phone frame */
-.stage {
-  background:
-    radial-gradient(900px 600px at 50% 40%, rgb(61 220 132 / 0.08), transparent 60%),
-    radial-gradient(700px 500px at 80% 90%, rgb(138 180 255 / 0.06), transparent 60%),
-    #05060a;
+@utility press {
+  transition: background-color 120ms ease;
+  &:active {
+    background-color: var(--fill);
+  }
 }

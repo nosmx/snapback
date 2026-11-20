@@ -5,8 +5,8 @@ self.addEventListener('install', () => self.skipWaiting())
 self.addEventListener('activate', (event) => event.waitUntil(self.clients.claim()))
 
 const OFFLINE = `<!doctype html><meta name="viewport" content="width=device-width,initial-scale=1">
-<body style="margin:0;height:100vh;display:grid;place-items:center;background:#0B0D12;color:#F3F5F9;font:17px system-ui;text-align:center">
-<div><div style="font-size:44px;font-weight:700;color:#3DDC84">Snapback</div><p>You’re offline. Reconnect and try again.</p></div></body>`
+<body style="margin:0;height:100vh;display:grid;place-items:center;background:#F2F2F7;color:#111111;font:17px system-ui;text-align:center">
+<div><div style="font-size:44px;font-weight:700;color:#16A34A">Snapback</div><p>You’re offline. Reconnect and try again.</p></div></body>`
 
 self.addEventListener('fetch', (event) => {
   if (event.request.mode !== 'navigate') return

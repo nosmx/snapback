@@ -1,14 +1,13 @@
 import { DemoControls } from '@/components/DemoPanel'
-import { PageHeader } from '@/components/shell'
-import { USE_MOCK } from '@/lib/api'
+import { NavBar } from '@/components/shell'
 
 export default function Demo() {
   return (
     <div>
-      <PageHeader title="Demo controls" subtitle={USE_MOCK ? 'Mock data · in-browser' : 'Live backend'} />
-      <div className="px-4 pt-2">
+      <NavBar title="Demo controls" back />
+      <div className="px-4">
         <DemoControls />
-        <p className="text-faint mt-4 text-center text-[13px]">Tip: press D or triple-tap the logo on any screen.</p>
+        <p className="text-ink-3 mt-4 text-center text-[13px]">Press D or triple-tap “Snapback” on Home to open these anywhere.</p>
       </div>
     </div>
   )

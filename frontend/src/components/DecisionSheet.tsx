@@ -1,17 +1,17 @@
-// One bottom sheet for the whole decision: choose → Persona verification → live progress → done.
-// The provider sits above the routes so the flow survives the card unmounting once answered.
-import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from 'react'
+// Decision sheet: options → Persona confirmation → one progress row that updates in place → Done.
+// The provider sits above the screens so the flow survives the row unmounting once answered.
+import { createContext, useCallback, useContext, useState, type ReactNode } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { AnimatePresence, motion } from 'framer-motion'
-import { AlertTriangle, ArrowRight, Check, CheckCircle2, Fingerprint, Loader2, Sparkles } from 'lucide-react'
-import { Sheet, useCountUp, useToast } from '@/components/shell'
-import { Pill, ProductImage, TRIGGER, stepMeta } from '@/components/task-meta'
+import { Check, Loader2, ScanFace } from 'lucide-react'
+import { Sheet, useToast } from '@/components/shell'
+import { Thumb, stepMeta } from '@/components/task-meta'
 import { answerApproval, getAudit, getLastMockInquiry, getTask } from '@/lib/api'
 import { usePoll } from '@/lib/hooks'
 import { cn, fmtDate, sleep, storeName, usd } from '@/lib/utils'
 import type { Approval, ApprovalOption, Task } from '@/lib/types'
 
-type Phase = 'choose' | 'verifying' | 'verified' | 'running' | 'done' | 'error'
+type Phase = 'choose' | 'confirming' | 'verified' | 'progress' | 'error'
 
 const Ctx = createContext<(a: Approval, t: Task) => void>(() => {})
 // eslint-disable-next-line react-refresh/only-export-components
@@ -26,15 +26,13 @@ export function actionOf(o: ApprovalOption): 'execute' | 'dismiss' | 'snooze' {
 }
 
 const WORKING: Record<string, string> = {
-  awaiting_user: 'Starting…',
-  detected: 'Planning…',
-  planned: 'Planning…',
-  executing: 'Working on it…',
-  verifying: 'Verifying with outside evidence…',
-  awaiting_refund: 'Waiting for the refund to post…',
+  awaiting_user: 'Starting',
+  executing: 'Working on it',
+  verifying: 'Confirming the result',
+  awaiting_refund: 'Waiting for the refund',
 }
 
-const fade = { initial: { opacity: 0, y: 12 }, animate: { opacity: 1, y: 0 }, exit: { opacity: 0, y: -8 }, transition: { duration: 0.22 } }
+const fade = { initial: { opacity: 0 }, animate: { opacity: 1 }, exit: { opacity: 0 }, transition: { duration: 0.2 } }
 
 export function DecisionSheetProvider({ children }: { children: ReactNode }) {
   const navigate = useNavigate()
@@ -48,9 +46,9 @@ export function DecisionSheetProvider({ children }: { children: ReactNode }) {
   const [err, setErr] = useState('')
 
   const taskId = ctx?.task.task_id ?? ''
-  const live = open && phase !== 'choose'
-  const { data: task } = usePoll(() => (live && taskId ? getTask(taskId) : Promise.resolve(null)), 700, [taskId, live])
-  const { data: entries } = usePoll(() => (live && taskId ? getAudit(taskId) : Promise.resolve([])), 700, [taskId, live])
+  const live = open && phase === 'progress'
+  const { data: task } = usePoll(() => (live ? getTask(taskId) : Promise.resolve(null)), 700, [taskId, live])
+  const { data: entries } = usePoll(() => (live ? getAudit(taskId) : Promise.resolve([])), 700, [taskId, live])
 
   const openDecision = useCallback((approval: Approval, t: Task) => {
     setCtx({ approval, task: t })
@@ -67,67 +65,57 @@ export function DecisionSheetProvider({ children }: { children: ReactNode }) {
       try {
         await answerApproval(ctx.approval.approval_id, opt.id)
         setOpen(false)
-        if (kind === 'snooze') toast('We’ll remind you tomorrow', 'info')
-        else if (opt.id === 'keep') toast('Keeping it · alerts off')
-        else toast('Ignored · we won’t ask again')
+        toast(kind === 'snooze' ? 'We’ll remind you tomorrow' : opt.id === 'keep' ? 'Keeping it. Alerts are off.' : 'Ignored')
       } catch (e) {
-        toast(e instanceof Error ? e.message : 'Something went wrong', 'error')
+        toast(e instanceof Error ? e.message : 'Something went wrong')
       }
       return
     }
     setOption(opt)
-    setPhase('verifying')
+    setPhase('confirming')
     try {
       const before = await getAudit(ctx.task.task_id)
       setBase(before.length)
-      await sleep(1600) // Persona embedded check — simulated in the UI
+      await sleep(1500) // Persona confirmation, simulated in the UI
       const res = await answerApproval(ctx.approval.approval_id, opt.id)
       setInquiry(res.persona_inquiry_id ?? getLastMockInquiry())
       setPhase('verified')
-      await sleep(1200)
-      setPhase('running')
+      await sleep(900)
+      setPhase('progress')
     } catch (e) {
       setErr(e instanceof Error ? e.message : String(e))
       setPhase('error')
     }
   }
 
-  useEffect(() => {
-    if (phase === 'running' && (task?.status === 'done' || task?.status === 'failed')) setPhase('done')
-  }, [phase, task?.status])
-
   const fresh = (entries ?? []).slice(base)
+  const done = phase === 'progress' && task?.status === 'done'
 
   return (
     <Ctx.Provider value={openDecision}>
       {children}
-      <Sheet open={open} onClose={() => setOpen(false)} dismissible={phase !== 'verifying' && phase !== 'verified'}>
+      <Sheet open={open} onClose={() => setOpen(false)} dismissible={phase !== 'confirming' && phase !== 'verified'}>
         {ctx && (
           <AnimatePresence mode="wait" initial={false}>
             {phase === 'choose' && (
               <motion.div key="choose" {...fade}>
-                <ChooseStep approval={ctx.approval} task={ctx.task} onChoose={choose} />
+                <Choose approval={ctx.approval} task={ctx.task} onChoose={choose} />
               </motion.div>
             )}
-            {phase === 'verifying' && (
-              <motion.div key="verifying" {...fade}>
-                <PersonaStep verified={false} option={option} inquiry="" />
+            {(phase === 'confirming' || phase === 'verified') && (
+              <motion.div key="persona" {...fade}>
+                <Persona verified={phase === 'verified'} inquiry={inquiry} />
               </motion.div>
             )}
-            {phase === 'verified' && (
-              <motion.div key="verified" {...fade}>
-                <PersonaStep verified option={option} inquiry={inquiry} />
-              </motion.div>
-            )}
-            {(phase === 'running' || phase === 'done') && (
-              <motion.div key="run" {...fade}>
-                <RunStep
-                  done={phase === 'done'}
-                  option={option}
+            {phase === 'progress' && (
+              <motion.div key="progress" {...fade}>
+                <Progress
                   task={task ?? ctx.task}
-                  entries={fresh}
+                  option={option}
+                  last={fresh[fresh.length - 1]}
+                  done={done}
                   onClose={() => setOpen(false)}
-                  onAudit={() => {
+                  onSee={() => {
                     setOpen(false)
                     navigate(`/tasks/${taskId}`)
                   }}
@@ -135,11 +123,10 @@ export function DecisionSheetProvider({ children }: { children: ReactNode }) {
               </motion.div>
             )}
             {phase === 'error' && (
-              <motion.div key="error" {...fade} className="flex flex-col items-center gap-3 py-8 text-center">
-                <AlertTriangle className="text-danger size-12" />
-                <div className="text-xl font-bold">Couldn’t complete that</div>
-                <div className="text-muted">{err}</div>
-                <button className="tap bg-surface-3 mt-2 rounded-2xl px-5 py-3 font-semibold" onClick={() => option && choose(option)}>
+              <motion.div key="error" {...fade} className="py-8 text-center">
+                <div className="text-red text-[17px] font-semibold">Couldn’t complete that</div>
+                <div className="text-ink-2 mt-1 text-[15px]">{err}</div>
+                <button className="tap bg-fill mt-5 h-12 w-full rounded-xl text-[17px] font-semibold" onClick={() => option && choose(option)}>
                   Try again
                 </button>
               </motion.div>
@@ -151,227 +138,137 @@ export function DecisionSheetProvider({ children }: { children: ReactNode }) {
   )
 }
 
-function ChooseStep({ approval, task, onChoose }: { approval: Approval; task: Task; onChoose: (o: ApprovalOption) => void }) {
+function Choose({ approval, task, onChoose }: { approval: Approval; task: Task; onChoose: (o: ApprovalOption) => void }) {
   const o = task.order
   const pm = approval.price_math
   const dl = approval.deadline
-  const exec = approval.options.filter((x) => actionOf(x) === 'execute')
-  const rest = approval.options.filter((x) => actionOf(x) !== 'execute')
+  const facts = pm
+    ? `Paid ${usd(pm.paid_usd)} · Now ${usd(pm.current_usd)}`
+    : dl
+      ? `Return by ${fmtDate(dl.return_by)} · ${dl.days_left} days left`
+      : (approval.facts ?? null)
   return (
-    <div className="space-y-5">
-      <div className="flex items-center gap-3.5">
-        <ProductImage src={o?.image_url} className="size-[72px] rounded-[20px]" />
-        <div className="min-w-0">
-          <Pill tone="warn">{TRIGGER[task.trigger_type]?.label ?? 'Decision'}</Pill>
-          <div className="mt-1.5 truncate text-[17px] font-semibold">{o?.item_name ?? task.title}</div>
-          <div className="text-muted truncate text-[14px]">
-            {o ? `${storeName(o.store)} · ${o.order_id}` : task.order_id}
-          </div>
+    <div>
+      <div className="flex items-start gap-3.5">
+        <Thumb src={o?.image_url} className="size-14 rounded-xl" />
+        <div className="min-w-0 pt-0.5">
+          <div className="text-ink-2 text-[13px]">{o ? storeName(o.store) : ''}</div>
+          <h2 className="text-[19px] leading-snug font-semibold tracking-[-0.01em]">{approval.question}</h2>
         </div>
       </div>
+      {facts && <div className="text-ink-2 mt-3 text-[15px] tabular-nums">{facts}</div>}
 
-      <h2 className="text-[24px] leading-[1.2] font-bold tracking-[-0.02em]">{approval.question}</h2>
-
-      {pm && (
-        <div className="bg-bg/60 flex items-end justify-between rounded-[22px] p-4 ring-1 ring-white/6">
-          <div>
-            <div className="text-muted text-[13px] font-medium">You paid</div>
-            <div className="text-muted text-[22px] font-semibold tabular-nums line-through decoration-2">{usd(pm.paid_usd)}</div>
-          </div>
-          <ArrowRight className="text-faint mb-2 size-5" />
-          <div>
-            <div className="text-muted text-[13px] font-medium">Now</div>
-            <div className="text-[34px] leading-none font-bold tracking-tight tabular-nums">{usd(pm.current_usd)}</div>
-          </div>
-          <Pill tone="warn" className="mb-1 text-[15px]">−{Math.round(pm.drop_pct)}%</Pill>
-        </div>
-      )}
-      {dl && (
-        <div className="bg-bg/60 flex items-center justify-between rounded-[22px] p-4 ring-1 ring-white/6">
-          <div>
-            <div className="text-muted text-[13px] font-medium">Return by</div>
-            <div className="text-[30px] leading-tight font-bold tracking-tight">{fmtDate(dl.return_by)}</div>
-          </div>
-          <div className="text-right">
-            <Pill tone="warn" className="text-[15px]">{dl.days_left} days left</Pill>
-            <div className="text-muted mt-1 text-[14px] tabular-nums">paid {usd(dl.price_usd)}</div>
-          </div>
-        </div>
-      )}
-
-      <div className="space-y-3">
-        {exec.map((opt) => {
+      <div className="mt-5 space-y-2.5">
+        {approval.options.map((opt) => {
           const rec = approval.recommended === opt.id
+          const save = opt.net_savings_usd ? usd(opt.net_savings_usd, { sign: true }) : null
           return (
             <button
               key={opt.id}
               onClick={() => onChoose(opt)}
-              className={cn(
-                'tap relative flex min-h-[76px] w-full items-center gap-3 rounded-[22px] p-4 text-left ring-1',
-                rec ? 'bg-money/10 ring-money/60 ring-2' : 'bg-surface-2 ring-white/8',
-              )}
+              className={cn('tap flex w-full items-center gap-3 rounded-xl px-4 py-3 text-left', rec ? 'bg-green text-white' : 'bg-card border')}
             >
               <div className="min-w-0 flex-1">
-                <div className="flex items-center gap-2">
-                  <span className="text-[18px] font-bold">{opt.label}</span>
-                  {rec && (
-                    <span className="bg-money text-money-ink inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[12px] font-bold">
-                      <Sparkles className="size-3" /> Recommended
-                    </span>
-                  )}
-                </div>
-                <div className="text-muted mt-0.5 text-[14px] leading-snug">{opt.detail}</div>
+                {rec && <div className="text-[12px] font-medium text-white/80">Recommended</div>}
+                <div className="text-[17px] font-semibold">{opt.label}</div>
+                <div className={cn('text-[13px] leading-snug', rec ? 'text-white/85' : 'text-ink-2')}>{opt.detail}</div>
               </div>
-              {opt.net_savings_usd ? (
-                <span className="text-money text-[22px] font-bold tracking-tight tabular-nums">{usd(opt.net_savings_usd, { sign: true })}</span>
-              ) : null}
+              {save && <div className={cn('text-[17px] font-semibold tabular-nums', !rec && 'text-green')}>{save}</div>}
             </button>
           )
         })}
       </div>
-
-      {rest.length > 0 && (
-        <div className={cn('grid gap-2', rest.length > 1 ? 'grid-cols-2' : 'grid-cols-1')}>
-          {rest.map((opt) => (
-            <button key={opt.id} onClick={() => onChoose(opt)} className="tap bg-surface-2/60 text-muted rounded-2xl px-3 py-3.5 text-[15px] font-semibold ring-1 ring-white/6">
-              {opt.label}
-            </button>
-          ))}
-        </div>
-      )}
-
-      <div className="text-faint flex items-center justify-center gap-1.5 pb-1 text-[13px]">
-        <Fingerprint className="size-4" /> One tap, verified with Persona. Everything after runs on its own.
-      </div>
+      <p className="text-ink-3 mt-4 text-center text-[13px]">Approving asks Persona to confirm it’s you.</p>
     </div>
   )
 }
 
-function PersonaStep({ verified, option, inquiry }: { verified: boolean; option: ApprovalOption | null; inquiry: string }) {
+/** Minimal Persona step, shared with the Rules editor. */
+export function Persona({ verified, inquiry }: { verified: boolean; inquiry: string }) {
   return (
-    <div className="flex flex-col items-center gap-5 py-6 text-center">
-      <div className="relative flex size-[132px] items-center justify-center">
-        <svg viewBox="0 0 132 132" className="absolute inset-0 -rotate-90">
-          <circle cx="66" cy="66" r="60" fill="none" stroke="rgba(255,255,255,0.08)" strokeWidth="6" />
-          <motion.circle
-            cx="66"
-            cy="66"
-            r="60"
-            fill="none"
-            stroke="var(--color-money)"
-            strokeWidth="6"
-            strokeLinecap="round"
-            initial={{ pathLength: verified ? 1 : 0 }}
-            animate={{ pathLength: 1 }}
-            transition={{ duration: verified ? 0 : 1.5, ease: 'easeInOut' }}
-          />
-        </svg>
+    <div className="flex flex-col items-center py-8 text-center">
+      <div className="text-ink-2 flex items-center gap-1.5 text-[13px] font-semibold">
+        <span className="bg-ink text-bg flex size-5 items-center justify-center rounded-[5px]">
+          <ScanFace className="size-3.5" />
+        </span>
+        Persona
+      </div>
+      <div className="mt-6 flex size-16 items-center justify-center">
         <AnimatePresence mode="wait">
           {verified ? (
-            <motion.span
-              key="ok"
-              initial={{ scale: 0.4, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              transition={{ type: 'spring', stiffness: 400, damping: 15 }}
-              className="bg-money text-money-ink flex size-[96px] items-center justify-center rounded-full"
-            >
-              <Check className="size-12" strokeWidth={3} />
+            <motion.span key="ok" initial={{ scale: 0.6, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} transition={{ duration: 0.2 }} className="bg-green flex size-16 items-center justify-center rounded-full text-white">
+              <Check className="size-8" strokeWidth={2.5} />
             </motion.span>
           ) : (
-            <motion.span key="fp" animate={{ opacity: [0.5, 1, 0.5] }} transition={{ repeat: Infinity, duration: 1.2 }}>
-              <Fingerprint className="text-money size-16" strokeWidth={1.6} />
+            <motion.span key="spin" exit={{ opacity: 0 }}>
+              <Loader2 className="text-ink-3 size-10 animate-spin" strokeWidth={1.5} />
             </motion.span>
           )}
         </AnimatePresence>
       </div>
-      <div>
-        <div className={cn('text-[26px] font-bold tracking-tight', verified && 'text-money')}>
-          {verified ? 'Verified by Persona ✓' : 'Verifying it’s you…'}
-        </div>
-        <div className="text-muted mt-1.5 text-[15px]">
-          {verified ? (
-            <>
-              Approved <b className="text-ink">{option?.label}</b>
-              {option?.net_savings_usd ? ` · ${usd(option.net_savings_usd, { sign: true })}` : ''}
-            </>
-          ) : (
-            'A verified human must approve before any money moves.'
-          )}
-        </div>
-      </div>
-      {verified && inquiry ? (
-        <code className="bg-bg text-muted rounded-lg px-2.5 py-1 font-mono text-[12px]">{inquiry}</code>
-      ) : (
-        <div className="text-faint text-[12px] font-bold tracking-[0.18em]">SECURED BY PERSONA</div>
-      )}
+      <div className="mt-4 text-[19px] font-semibold">{verified ? 'Verified' : 'Confirming it’s you…'}</div>
+      <div className="text-ink-3 mt-1 h-5 font-mono text-[12px]">{verified ? inquiry : ''}</div>
     </div>
   )
 }
 
-function RunStep({
-  done,
-  option,
+function Progress({
   task,
-  entries,
+  option,
+  last,
+  done,
   onClose,
-  onAudit,
+  onSee,
 }: {
-  done: boolean
-  option: ApprovalOption | null
   task: Task
-  entries: { entry_id: number; step: string; decision: string; verified: boolean | null }[]
+  option: ApprovalOption | null
+  last?: { step: string; decision: string }
+  done: boolean
   onClose: () => void
-  onAudit: () => void
+  onSee: () => void
 }) {
-  const amount = task.amount_usd ?? option?.net_savings_usd ?? 0
-  const count = useCountUp(done ? amount : 0)
+  const amount = task.amount_usd ?? option?.net_savings_usd ?? null
+  const title = done ? 'Done' : last ? stepMeta(last.step).label : WORKING[task.status] ?? 'Working on it'
+  const sub = done ? task.outcome ?? 'Completed and confirmed.' : last?.decision ?? 'Starting…'
   return (
-    <div className="space-y-5">
-      <div>
-        <div className="flex items-center gap-2 text-[24px] font-bold tracking-tight">
-          {done ? <CheckCircle2 className="text-money size-7" /> : <Loader2 className="text-money size-6 animate-spin" />}
-          {done ? 'Done' : 'Snapback is on it'}
-        </div>
-        <div className="text-muted mt-1 text-[15px]">
-          {option?.label} · {task.order?.item_name ?? task.title} · no more taps needed
+    <div className="pt-2">
+      <div className="text-ink-2 text-[13px]">
+        {option?.label} · {task.order?.item_name}
+      </div>
+      {done && amount ? (
+        <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} className="text-green mt-1 text-[40px] leading-tight font-bold tracking-[-0.02em] tabular-nums">
+          {usd(amount, { sign: true })}
+        </motion.div>
+      ) : (
+        <div className="mt-1 text-[22px] font-semibold tracking-[-0.01em]">Working on it</div>
+      )}
+
+      <div className="bg-bg mt-4 flex items-center gap-3 rounded-xl px-4 py-3.5">
+        <span className="flex size-7 shrink-0 items-center justify-center">
+          {done ? (
+            <span className="bg-green flex size-7 items-center justify-center rounded-full text-white">
+              <Check className="size-4" strokeWidth={2.5} />
+            </span>
+          ) : (
+            <Loader2 className="text-ink-2 size-5 animate-spin" />
+          )}
+        </span>
+        <div className="min-w-0 flex-1">
+          <AnimatePresence mode="wait" initial={false}>
+            <motion.div key={title + sub} initial={{ opacity: 0, y: 4 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -4 }} transition={{ duration: 0.18 }}>
+              <div className="text-[16px] font-semibold">{title}</div>
+              <div className="text-ink-2 truncate text-[14px]">{sub}</div>
+            </motion.div>
+          </AnimatePresence>
         </div>
       </div>
 
-      {done && (
-        <motion.div initial={{ opacity: 0, scale: 0.96 }} animate={{ opacity: 1, scale: 1 }} className="bg-money/10 ring-money/30 rounded-[22px] p-5 ring-1">
-          <div className="text-money text-[48px] leading-none font-bold tracking-[-0.04em] tabular-nums">{usd(Math.round(count * 100) / 100, { sign: true })}</div>
-          <div className="mt-2 text-[16px] font-medium">{task.outcome ?? 'Completed and verified.'}</div>
-        </motion.div>
-      )}
-
-      <ol className="relative space-y-4 pl-1">
-        {entries.map((e) => {
-          const m = stepMeta(e.step)
-          return (
-            <motion.li key={e.entry_id} initial={{ opacity: 0, x: -10 }} animate={{ opacity: 1, x: 0 }} className="flex items-start gap-3">
-              <span className={cn('mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full', e.verified ? 'bg-money text-money-ink' : 'bg-money/15 text-money')}>
-                <Check className="size-3.5" strokeWidth={3} />
-              </span>
-              <div className="min-w-0">
-                <div className="text-faint text-[12px] font-bold tracking-wider uppercase">{m.label}</div>
-                <div className="text-[15px] font-medium">{e.decision}</div>
-              </div>
-            </motion.li>
-          )
-        })}
-        {!done && (
-          <li className="text-money flex items-center gap-3 text-[15px] font-medium">
-            <Loader2 className="size-6 animate-spin" /> {WORKING[task.status] ?? 'Working…'}
-          </li>
-        )}
-      </ol>
-
-      <div className="grid grid-cols-2 gap-2 pt-1">
-        <button onClick={onClose} className="tap bg-surface-2 rounded-2xl py-3.5 text-[16px] font-semibold ring-1 ring-white/8">
-          {done ? 'Close' : 'Run in background'}
+      <div className="mt-5 space-y-2">
+        <button onClick={onSee} className="tap bg-ink text-bg h-12 w-full rounded-xl text-[17px] font-semibold">
+          See what I did
         </button>
-        <button onClick={onAudit} className="tap bg-money text-money-ink rounded-2xl py-3.5 text-[16px] font-bold">
-          View audit trail
+        <button onClick={onClose} className="tap text-ink-2 h-11 w-full text-[16px]">
+          {done ? 'Close' : 'Keep working in background'}
         </button>
       </div>
     </div>

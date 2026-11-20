@@ -472,9 +472,146 @@ function seed(): MockDb {
     ], start))
   }
 
+  const bottleA = order({ order_id: 'KSO-77301', store: 'kestrel-outdoors', item_name: 'Trail Bottle', sku: 'KSO-TRAIL-BTL', price: 28, status: 'active', image_url: img('KSO-TRAIL-BTL'), ordered: 5, delivered: 3, window: 45 })
+  const bottleB = order({ order_id: 'KSO-77302', store: 'kestrel-outdoors', item_name: 'Trail Bottle', sku: 'KSO-TRAIL-BTL', price: 28, status: 'active', image_url: img('KSO-TRAIL-BTL'), ordered: 5, delivered: 3, window: 45 })
+  const earbuds = order({ order_id: 'NWA-10388', store: 'northwind-audio', item_name: 'Pulse Earbuds', sku: 'NWA-PULSE-EB', price: 129, status: 'returned', image_url: img('NWA-PULSE-EB'), ordered: 23, delivered: 20, window: 30 })
+
+  // Pending decisions ("to-dos"). Blender + jacket come first so Home shows the scripted demo pair.
   addMajorDrop(db, blender, now - 42 * MIN)
   addReturnWindow(db, jacket, now - 18 * MIN)
+  addDuplicate(db, bottleA, bottleB, now - 8 * MIN)
+  addOverLimit(db, earbuds, now - 3 * MIN)
   return db
+}
+
+function addDuplicate(db: MockDb, first: Order, second: Order, start: number) {
+  const id = 'tsk_duplicate_bottle'
+  const day = new Date(first.ordered_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  db.tasks.push({
+    task_id: id, trigger_type: 'duplicate', order_id: second.order_id, status: 'awaiting_user', decision: null,
+    title: 'Bottle ordered twice', summary: `Trail Bottle was ordered twice on ${day}. Return the extra one?`,
+    amount_usd: 21.05, created_at: iso(start), updated_at: iso(start),
+  })
+  appendRun(db, id, [
+    {
+      step: 'task_detected', decision: `Same item ordered twice on ${day}`,
+      reason: 'Two Kestrel orders for the Trail Bottle, placed 4 minutes apart.',
+      sources: [email('e08a', `${first.order_id} · Trail Bottle · $28.00`), email('e08b', `${second.order_id} · Trail Bottle · $28.00`)],
+      rules_checked: [
+        { rule: 'Same SKU, same day', passed: true, evidence: 'KSO-TRAIL-BTL · 4 minutes apart' },
+        { rule: 'Not a multi-pack', passed: true, evidence: 'Quantity 1 on each order' },
+      ],
+      authorized_by: 'background_loop', model: 'Background loop (30 s poll)', cost_usd: 0, latency_ms: 120,
+    },
+    {
+      step: 'policy_retrieved', decision: 'Retrieved Kestrel Outdoors return policy',
+      reason: 'Unused items return within 45 days; non-defective returns pay $6.95 shipping.',
+      sources: [
+        policy('kestrel-outdoors', '§1 Returns — “Unworn, unwashed items with original tags may be returned within 45 days”'),
+        policy('kestrel-outdoors', '§2 Fees — “Non-defective returns: a $6.95 return shipping fee is deducted”'),
+      ],
+      rules_checked: [{ rule: 'Within return window', passed: true, evidence: '3 of 45 days' }],
+      authorized_by: 'background_loop', model: 'Senso · context search', cost_usd: 0.002, latency_ms: 940,
+    },
+    {
+      step: 'options_computed', decision: 'Return the extra bottle: +$21.05',
+      reason: '$28.00 refund minus $6.95 return shipping.',
+      rejected_options: [{ option: 'Cancel the second order', reason: 'Already delivered, so cancelling is no longer possible' }],
+      rules_checked: [{ rule: 'Return nets more than $0', passed: true, evidence: '$28.00 − $6.95 = $21.05' }],
+      authorized_by: 'background_loop', model: 'rules engine → claude-sonnet-5-5 (explanation)', cost_usd: 0.0021, latency_ms: 1300,
+    },
+    {
+      step: 'user_notified', decision: 'Asked you: return the extra, or keep both',
+      reason: 'You might have meant to buy two. Only you know.',
+      authorized_by: 'background_loop', model: null, cost_usd: 0, latency_ms: 70,
+    },
+  ], start)
+  db.approvals.push({
+    approval_id: 'apr_duplicate_bottle', task_id: id,
+    question: 'You ordered the Kestrel Trail Bottle twice. Return the extra one?',
+    facts: `Ordered twice on ${day} · $28 each`,
+    options: [
+      { id: 'return_extra', label: 'Return the extra', detail: 'Refund $21.05 after $6.95 shipping · must be unused', net_savings_usd: 21.05, action: 'execute' },
+      { id: 'keep', label: 'Keep both', detail: 'I meant to buy two', action: 'dismiss' },
+    ],
+    recommended: 'return_extra', choice: null, asked_at: iso(start),
+  })
+}
+
+function addOverLimit(db: MockDb, o: Order, start: number) {
+  const id = 'tsk_overlimit_earbuds'
+  db.tasks.push({
+    task_id: id, trigger_type: 'chat', order_id: o.order_id, status: 'awaiting_user', decision: null,
+    title: 'Earbuds replacement over limit', summary: 'Return filed. The best replacement costs $40 more; your rules allow $30.',
+    amount_usd: 129, created_at: iso(start), updated_at: iso(start),
+  })
+  appendRun(db, id, [
+    {
+      step: 'intent_classified', decision: `Matched “left earbud won’t charge” to Northwind order ${o.order_id}`,
+      reason: 'Intent is “defective item”; the Pulse Earbuds are the only earbuds you’ve bought.',
+      sources: [{ doc: 'Your chat message', section: '“my left earbud won’t charge anymore”', url: '' }, email('e02', `${o.order_id} · Pulse Earbuds · $129.00`)],
+      rules_checked: [{ rule: 'Intent confidence ≥ 0.85', passed: true, evidence: 'defective_item 0.95' }],
+      authorized_by: 'mandate.auto_return_defective', model: 'claude-haiku-5-5', cost_usd: 0.00038, latency_ms: 580,
+    },
+    {
+      step: 'policy_retrieved', decision: 'Retrieved Northwind Audio return policy and reviews',
+      reason: '30-day window from delivery; defective items ship back free.',
+      sources: [
+        policy('northwind-audio', '§1 Returns — “within 30 days of the delivery date”'),
+        policy('northwind-audio', '§2 Fees — “Defective or damaged items: return shipping is free and no restocking fee applies”'),
+        { doc: 'Pulse Earbuds review summary (Senso)', section: '3.2★ · charging-case failures in 22% of reviews', url: `${MOCK_WORLD}/s/northwind-audio` },
+      ],
+      rules_checked: [{ rule: 'Verified policy exists in Senso', passed: true, evidence: 'Effective Sep 1, 2026' }],
+      authorized_by: 'mandate.auto_return_defective', model: 'Senso · context search', cost_usd: 0.002, latency_ms: 1010,
+    },
+    {
+      step: 'decision_made', decision: 'Return for a full refund, then replace',
+      reason: 'Delivered 20 days ago, inside the 30-day window, and defective.',
+      rejected_options: [{ option: 'Warranty claim', reason: 'A return refunds $129 now instead of a 2–3 week repair' }],
+      rules_checked: [
+        { rule: 'Within return window', passed: true, evidence: '20 of 30 days' },
+        { rule: 'mandate.auto_return_defective', passed: true, evidence: 'true' },
+      ],
+      authorized_by: 'mandate.auto_return_defective', model: 'rules engine → claude-sonnet-5-5 (explanation)', cost_usd: 0.0036, latency_ms: 1800,
+    },
+    {
+      step: 'return_filed', decision: 'Return RMA-NWA-88340 filed · prepaid label saved',
+      reason: 'Reason “Defective”, refund to original payment. Drop-off reminder set for tomorrow.',
+      sources: [portal('northwind-audio', 'Confirmation · RMA-NWA-88340 · refund $129.00')],
+      rules_checked: [{ rule: 'Idempotency key unused', passed: true, evidence: `return:${o.order_id}` }, { rule: 'No restocking fee charged', passed: true, evidence: '$0.00 (defective)' }],
+      authorized_by: 'mandate.auto_return_defective', model: 'Playwright (scripted)', cost_usd: 0, latency_ms: 6100,
+    },
+    {
+      step: 'replacement_ranked', decision: 'Best replacement: Halo Earbuds ($169, 4.7★)',
+      reason: 'The same model reviews poorly, and the best-rated pick is $40 over the original. Your rules allow $30.',
+      sources: [{ doc: 'Halo Earbuds review summary (Senso)', section: '4.7★ · “battery case is solid”', url: `${MOCK_WORLD}/s/northwind-audio` }],
+      rejected_options: [
+        { option: 'Same earbuds ($129)', reason: 'Poor reviews: 3.2★, charging-case failures' },
+        { option: 'Studio MH ($149)', reason: 'Over-ear headphones, not earbuds' },
+      ],
+      rules_checked: [
+        { rule: 'Extra spend ≤ $30', passed: false, evidence: '+$40.00, so ask you' },
+        { rule: 'Total ≤ $200 approval cap', passed: true, evidence: '$169.00' },
+      ],
+      authorized_by: 'mandate.replacement.max_extra_spend_usd', model: 'SIE · Qwen/Qwen3-Reranker-0.6B', cost_usd: 0.00021, latency_ms: 360,
+    },
+    {
+      step: 'user_notified', decision: 'Asked you before spending over your limit',
+      reason: 'The refund is already on its way. Only the replacement needs your choice.',
+      authorized_by: 'mandate.replacement.max_extra_spend_usd', model: null, cost_usd: 0, latency_ms: 80,
+    },
+  ], start)
+  db.approvals.push({
+    approval_id: 'apr_overlimit_earbuds', task_id: id,
+    question: 'The best replacement for your Pulse Earbuds costs $40 more. Buy it?',
+    facts: 'Refund of $129 on its way · your limit is +$30',
+    options: [
+      { id: 'buy_upgrade', label: 'Buy Halo Earbuds', detail: '$169 · 4.7★ · $10 over your limit', action: 'execute' },
+      { id: 'buy_same', label: 'Same earbuds again', detail: '$129 · 3.2★ · within your limit', action: 'execute' },
+      { id: 'refund_only', label: 'Just the refund', detail: 'No replacement · $129 back to your card', action: 'execute' },
+    ],
+    recommended: 'buy_upgrade', choice: null, asked_at: iso(start),
+  })
 }
 
 function addMajorDrop(db: MockDb, o: Order, start: number) {
@@ -647,6 +784,43 @@ function approvalScript(task: Task, approval: Approval, optionId: string, inquir
       ],
     }
   }
+  if (task.trigger_type === 'duplicate' && optionId === 'return_extra') {
+    return {
+      final: { status: 'done', decision: 'return', title: 'Extra bottle returned', amount_usd: 21.05, summary: 'Trail Bottle was ordered twice → returned the extra one', outcome: '$21.05 refunded to your card' },
+      steps: [
+        { wait: 200, status: 'executing', draft: approved },
+        { wait: 1700, draft: { step: 'return_filed', decision: 'Return RMA-KSO-6230 filed for KSO-77302 · label saved', reason: 'Reason “Ordered by mistake”; refund to original payment.', sources: [portal('kestrel-outdoors', 'Confirmation · RMA-KSO-6230 · refund $21.05')], rules_checked: [{ rule: 'Idempotency key unused', passed: true, evidence: 'return:KSO-77302' }, { rule: 'Within return window', passed: true, evidence: '3 of 45 days' }], authorized_by: auth, model: 'Playwright (scripted)', cost_usd: 0, latency_ms: 5400 } },
+        { wait: 1000, draft: { step: 'reminder_added', decision: 'Drop-off reminder: tomorrow 10:00 AM', reason: 'Calendar event (.ics), nearest drop-off 0.4 mi.', authorized_by: auth, model: 'Calendar (.ics)', cost_usd: 0, latency_ms: 110 } },
+        { wait: 300, status: 'awaiting_refund' },
+        { wait: 1600, draft: { step: 'refund_received', decision: 'Verified: $21.05 refund posted', reason: '$28.00 − $6.95 shipping, matched in the bank feed.', sources: [bank('Credit +$21.05 · Kestrel Outdoors · RMA-KSO-6230')], rules_checked: [{ rule: 'Refund amount matches', passed: true, evidence: '$21.05' }], authorized_by: 'verifier', model: 'Verifier (bank)', cost_usd: 0, latency_ms: 600, verified: true } },
+      ],
+    }
+  }
+  if (task.task_id.startsWith('tsk_overlimit') && ['buy_upgrade', 'buy_same', 'refund_only'].includes(optionId)) {
+    const refund: Draft = { step: 'refund_received', decision: 'Verified: $129.00 refund posted', reason: 'Matched a bank credit for the return of the Pulse Earbuds.', sources: [bank('Credit +$129.00 · Northwind Audio · RMA-NWA-88340')], rules_checked: [{ rule: 'Refund amount matches', passed: true, evidence: '$129.00' }, { rule: 'Refund to original payment', passed: true, evidence: 'Card ending ••42' }], authorized_by: 'verifier', model: 'Verifier (bank)', cost_usd: 0, latency_ms: 620, verified: true }
+    if (optionId === 'refund_only') {
+      return {
+        final: { status: 'done', decision: 'return', title: 'Returned for a refund', amount_usd: 129, summary: 'Pulse Earbuds returned, no replacement', outcome: '$129.00 refunded to your card' },
+        steps: [{ wait: 200, status: 'executing', draft: approved }, { wait: 400, status: 'awaiting_refund' }, { wait: 1800, draft: refund }],
+      }
+    }
+    const upgrade = optionId === 'buy_upgrade'
+    const item = upgrade ? 'Halo Earbuds' : 'Pulse Earbuds'
+    const price = upgrade ? 169 : 129
+    const orderNo = upgrade ? 'NWA-10652' : 'NWA-10653'
+    return {
+      final: {
+        status: 'done', decision: 'return_and_replace', title: upgrade ? 'Return + upgrade' : 'Return + replacement', amount_usd: 129,
+        summary: `Pulse Earbuds returned → ${item} ordered`, outcome: `$129.00 refunded · ${item} arriving Tuesday`,
+      },
+      steps: [
+        { wait: 200, status: 'executing', draft: approved },
+        { wait: 1700, draft: { step: 'order_placed', decision: `Ordered ${item} · ${orderNo} · $${price}.00`, reason: 'Placed with a stored payment token. The agent never sees card numbers.', sources: [{ doc: 'Northwind Audio checkout', section: `Order confirmation ${orderNo}`, url: `${MOCK_WORLD}/s/northwind-audio/checkout` }], rules_checked: [upgrade ? { rule: 'Over the +$30 limit', passed: true, evidence: 'Approved by you, verified with Persona' } : { rule: 'Extra spend ≤ $30', passed: true, evidence: '+$0.00' }, { rule: 'Total ≤ $200 approval cap', passed: true, evidence: `$${price}.00` }], authorized_by: auth, model: 'Playwright (scripted)', cost_usd: 0, latency_ms: 4700 } },
+        { wait: 400, status: 'verifying' },
+        { wait: 1600, draft: { ...refund, step: 'verified', decision: `Verified: $129.00 refund posted · ${item} confirmed` } },
+      ],
+    }
+  }
   // dismiss / snooze
   const label = optionId === 'remind' ? 'Remind me tomorrow' : opt.label
   return {
@@ -665,28 +839,16 @@ function approvalScript(task: Task, approval: Approval, optionId: string, inquir
 
 const PHOTO_STEP_WAIT = [1300, 1500, 1600, 1400, 2200, 1300, 1700, 1500]
 
-// ---------- persistence ----------
-const KEY = 'snapback.mock.v3'
-let db: MockDb = load()
-
-function load(): MockDb {
-  try {
-    const raw = localStorage.getItem(KEY)
-    if (raw) {
-      const parsed = JSON.parse(raw) as MockDb
-      if (parsed.version === 3) return parsed
-    }
-  } catch {
-    /* storage unavailable */
-  }
-  return seed()
+// ---------- state ----------
+// Fresh demo on every page load: the world is re-seeded in memory, so the four to-dos are always waiting.
+// (State still survives in-app navigation; it is only reset by a reload or "Reset demo data".)
+let db: MockDb = seed()
+try {
+  localStorage.removeItem('snapback.mock.v3') // clear data saved by older builds
+} catch {
+  /* storage unavailable */
 }
 function save() {
-  try {
-    localStorage.setItem(KEY, JSON.stringify(db))
-  } catch {
-    /* ignore */
-  }
   window.dispatchEvent(new Event('snapback:changed')) // same as api.CHANGED_EVENT (avoids a circular import)
 }
 
@@ -729,6 +891,10 @@ export const mockApi = {
   },
   async getAudit(taskId: string): Promise<AuditEntry[]> {
     return clone(db.audit.filter((e) => e.task_id === taskId))
+  },
+  /** The whole global chain (for the desktop "Agent activity" log). */
+  async getAuditAll(): Promise<AuditEntry[]> {
+    return clone(db.audit)
   },
   async getApprovals(): Promise<Approval[]> {
     return clone(db.approvals.filter((a) => !a.choice))
