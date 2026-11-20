@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_img.html" import shot %}
 {% block title %}{{ store.name }}: {{ store.tagline }}{% endblock %}
 {% block body %}
 {% set r = store.merchant_rules %}
@@ -90,7 +91,7 @@
         <p class="lead">{{ h[3] if h else store.tagline }}</p>
         <div class="ctas"><a class="btn lg" href="#c-{{ h[4] if h else cats[0] }}">{{ h[5] if h else "Shop now" }}</a><a class="btn lg ghost" href="#p-{{ hero_item.sku }}">{{ hero_item.name }}</a></div>
       </div>
-      <img class="hero-img" src="/static/products/{{ hero_item.image }}" alt="{{ hero_item.name }}">
+      <img class="hero-img" src="{{ shot(hero_item.sku, hero_item.image) }}" alt="{{ hero_item.name }}">
     </div>
   </section>
   {% endif %}
@@ -118,7 +119,7 @@
           {% elif i.current_price < i.price %}<span class="badge drop">Price drop</span>
           {% elif i.rating >= 4.7 %}<span class="badge">Top rated</span>
           {% elif loop.index == 1 %}<span class="badge">Bestseller</span>{% endif %}
-          <img src="/static/products/{{ i.image }}" alt="{{ i.name }}" loading="lazy">
+          <img src="{{ shot(i.sku, i.image) }}" alt="{{ i.name }}" loading="lazy">
         </a>
         <div class="meta">
           <a class="name" href="#p-{{ i.sku }}">{{ i.name }}</a>
@@ -135,7 +136,7 @@
   {% if s %}{% set s_item = items|selectattr("sku", "equalto", s[0])|first %}
   <section class="story" id="story"><div class="wrap"><div class="inner">
     <div class="copy"><span class="eyebrow">{{ s[1] }}</span><h2>{{ s[2] }}</h2><p class="muted" style="font-size:16px;margin:8px 0 26px">{{ s[3] }}</p><div><a class="btn" href="{{ s[4] }}">{{ s[5] }}</a></div></div>
-    <div class="pic">{% if s_item %}<img src="/static/products/{{ s_item.image }}" alt="{{ s_item.name }}" loading="lazy">{% endif %}</div>
+    <div class="pic">{% if s_item %}<img src="{{ shot(s_item.sku, s_item.image) }}" alt="{{ s_item.name }}" loading="lazy">{% endif %}</div>
   </div></div></section>
   {% else %}<span id="story"></span>{% endif %}
 </div>
@@ -151,8 +152,8 @@
   <nav class="crumbs"><a href="/s/{{ store.id }}">Home</a><span>/</span><a href="#c-{{ i.category }}">{{ CAT.get(i.category, i.category|title) }}</a><span>/</span><span>{{ i.name }}</span></nav>
   <div class="pdp-grid">
     <div class="gallery">
-      <div class="thumbs"><img src="/static/products/{{ i.image }}" alt=""><img class="t2" src="/static/products/{{ i.image }}" alt="" style="object-fit:none;object-position:50% 45%"></div>
-      <div class="main"><img src="/static/products/{{ i.image }}" alt="{{ i.name }}" loading="lazy"></div>
+      <div class="thumbs"><img src="{{ shot(i.sku, i.image) }}" alt=""><span class="tz"><img src="{{ shot(i.sku, i.image) }}" alt=""></span></div>
+      <div class="main"><img src="{{ shot(i.sku, i.image) }}" alt="{{ i.name }}" loading="lazy"></div>
     </div>
     <div class="pdp-info">
       <span class="eyebrow">{{ CAT.get(i.category, i.category|title) }} · SKU {{ i.sku }}</span>

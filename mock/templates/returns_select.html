@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_img.html" import shot %}
 {% block title %}Return items · Order {{ order.order_no }} · {{ store.name }}{% endblock %}
 {% block body %}
 {% set r = store.merchant_rules %}
@@ -13,7 +14,7 @@
       </div>
       <label class="item-row {{ 'selected' if window_open }}" style="margin:0;font-weight:400;cursor:pointer">
         <input class="check" type="checkbox" {{ "checked" if window_open else "disabled" }} aria-label="Return {{ order.name }}">
-        <img src="/static/products/{{ image }}" alt="">
+        <img src="{{ shot(order.sku, image) }}" alt="">
         <div>
           <div class="nm">{{ order.name }}</div>
           <div class="muted">SKU {{ order.sku }} · Qty {{ order.qty or 1 }} · ${{ "%.2f"|format(order.price) }}</div>
@@ -36,7 +37,7 @@
           <option value="original_payment">Original payment method (Demo card •••• 4242)</option><option value="store_credit">Store credit</option>
         </select>
         <div class="label">Return method</div>
-        <div class="choice on"><span class="dot"></span><div class="grow"><b>Drop off with a QR code</b><span>No box or printer needed at most drop-off points</span></div><b>{{ "Free" }}</b></div>
+        <div class="choice on"><span class="dot"></span><div class="grow"><b>Drop off with a QR code</b><span>No box or printer needed at most drop-off points</span></div></div>
         <p style="margin-top:24px"><button class="btn lg block" type="submit" data-testid="submit-return">Submit return</button></p>
       </form>
       {% else %}

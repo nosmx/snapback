@@ -13,7 +13,7 @@
     {% for s in stores %}{% set l = LOOK.get(s.id, ("#eee", "#222", "Inter", s.name, "0", "")) %}
     <div class="store-tile">
       <a class="top" href="/s/{{ s.id }}" style="background:{{ l[0] }};color:{{ l[1] }};text-decoration:none;font-family:'{{ l[2] }}',sans-serif;font-size:26px;letter-spacing:{{ l[4] }};font-weight:600;gap:14px">
-        {% if l[5] %}<img src="/static/products/{{ l[5] }}" alt="" style="width:110px;height:110px;object-fit:cover;border-radius:8px">{% endif %}<span>{{ l[3] }}</span></a>
+        {% if l[5] %}<img src="/static/shots/{{ l[5] }}" alt="" style="width:110px;height:110px;object-fit:cover;border-radius:8px">{% endif %}<span>{{ l[3] }}</span></a>
       <div class="bot"><b>{{ s.name }}</b><div>{{ s.tagline }}</div>
         <div class="links"><a href="/s/{{ s.id }}">Storefront</a><a href="/s/{{ s.id }}/returns">Returns portal</a>{% if s.has_policy %}<a href="/s/{{ s.id }}/policy">Policy</a>{% else %}<span class="muted">No published policy</span>{% endif %}</div></div>
     </div>{% endfor %}

@@ -1,4 +1,5 @@
 {% extends "base.html" %}
+{% from "_img.html" import shot %}
 {% block title %}Order {{ purchase.order_no }} · {{ store.name }}{% endblock %}
 {% block body %}
 <div class="page"><div class="wrap narrow" style="max-width:880px">
@@ -15,7 +16,7 @@
     <div class="panel">
       <h3>Order details</h3>
       <div class="item-row" style="grid-template-columns:72px 1fr;border:0;padding:6px 0 14px;background:transparent">
-        <img src="/static/products/{{ item.sku|lower }}.png" alt="" style="width:72px;height:72px">
+        <img src="{{ shot(item.sku, none) }}" alt="" style="width:72px;height:72px">
         <div><div class="nm">{{ item.name }}</div><div class="muted">SKU {{ purchase.sku }} · Qty 1</div></div>
       </div>
       <table class="kv">

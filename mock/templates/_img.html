@@ -1,0 +1,8 @@
+{#- Storefront imagery. Studio shots live in /static/shots; /static/products stays the order-email
+    image set (ingestion embeds it for photo matching), so it must not change. -#}
+{% macro shot(sku, image) -%}
+{%- set SHOTS = ["NWA-ARC-ANC", "NWA-ARC-ANC2", "NWA-ARC-ANC-PRO", "NWA-HALO-OE", "NWA-STUDIO-MH", "NWA-SHELF-SPK", "NWA-DAC-USBC",
+  "JNH-VORTEX-BL", "JNH-VORTEX-PRO", "JNH-POUR-KTL", "JNH-CER-TST2", "JNH-CER-TST4", "JNH-LINEN-THR", "JNH-CI-SKLT",
+  "KSO-RIDGE-JKT", "KSO-RIDGE-LITE", "KSO-TRAIL-BTL", "KSO-BASECAMP-2P", "KSO-MERINO-BN", "LSC-DESK-LAMP"] -%}
+{%- if sku in SHOTS -%}/static/shots/{{ sku|lower }}.png{%- else -%}/static/products/{{ image or (sku|lower ~ '.png') }}{%- endif -%}
+{%- endmacro %}
