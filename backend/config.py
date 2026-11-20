@@ -80,7 +80,8 @@ def integration_modes() -> Dict[str, str]:
         "senso": _resolve(s.senso_mode, s.senso_api_key, s.senso_base_url),
         "sie": _resolve(s.sie_mode, s.sie_api_key, s.sie_base_url),
         "db": _resolve(s.db_mode, s.singlestore_url),
-        "persona": _resolve(s.persona_mode, s.persona_api_key),
+        # an inquiry can't be created without a template, so the key alone isn't "real"
+        "persona": _resolve(s.persona_mode, s.persona_api_key, s.persona_template_id_mandate),
         "amplitude": _resolve(s.amplitude_mode, s.amplitude_api_key),
         "statsig": _resolve(s.statsig_mode, s.statsig_server_secret),
     }
