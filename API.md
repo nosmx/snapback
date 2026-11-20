@@ -126,23 +126,36 @@ Return-window card:
 ## Photo trigger
 
 ### `POST /api/photo` (multipart, field `file`) → `{ "task_id": "tsk_…" }`
-Returns immediately. iPhone `.heic` files are converted to JPEG. Steps, in order:
+Returns immediately. iPhone `.heic` files are converted to JPEG. **Demo photo:** `http://localhost:8000/photos/demo_broken_earbuds.jpg` (a real photo of a cracked earbud with an exposed battery). Steps, in order (captured from a live run):
 
-| # | step | decision (example) |
-|---|---|---|
-| 1 | `task_detected` | Photo received |
-| 2 | `photo_identified` | Photo embedded · compared with 15 order images |
-| 3 | `order_matched` | Matched Arc ANC Wireless Headphones · NWA-10421 · 88% |
-| 4 | `policy_retrieved` | Northwind Audio policy: 30-day returns · 1-year warranty |
-| 5 | `decision_made` | Return + replacement |
-| 6 | `return_filed` | Return RMA-NWA-620425 filed · refund $179.00 |
-| 7 | `reminder_added` | Drop-off reminder for 2026-11-26 (deadline 2026-11-27) |
-| 8 | `replacement_ranked` | Chose Arc ANC 2 Wireless Headphones · $199.00 · ★4.6 |
-| 9 | `order_placed` | Ordered Arc ANC 2 Wireless Headphones · NWA-39612 · $199.00 |
-| 10–11 | `verified` ×2 | Return … confirmed by email / Replacement order … confirmed by email |
-| 12 | `refund_received` | $179.00 posted to original payment |
+| # | step | `provider` | decision |
+|---|---|---|---|
+| 1 | `task_detected` | snapback | Photo received |
+| 2 | `photo_identified` | sie | Photo embedded · compared with 16 order images |
+| 3 | `order_matched` | singlestore | Matched Pulse True Wireless Earbuds · NWA-10388 · 86% |
+| 4 | `damage_assessed` | llm | Damage: cracked housing split open, exposed battery and internal wiring |
+| 5 | `policy_retrieved` | senso | Northwind Audio policy: 30-day returns · 1-year warranty |
+| 6 | `decision_made` | llm | Return + replacement · in-store drop-off (damaged battery) |
+| 7 | `return_filed` | playwright | Return RMA-NWA-305614 filed · in-store drop-off · refund $179.00 |
+| 8 | `reminder_added` | calendar | “Drop off at store: Pulse True Wireless Earbuds (Northwind Audio)” · Fri, Nov 20 · 4:00 PM · Apple Calendar |
+| 9 | `replacement_ranked` | sie | Chose Pulse Pro Wireless Earbuds · $199.00 · ★4.7 |
+| 10 | `order_placed` | playwright | Ordered Pulse Pro Wireless Earbuds · NWA-78588 · $199.00 |
+| 11–12 | `verified` ×2 | verifier | Return … confirmed by email / Replacement order … confirmed by email |
+| 13 | `refund_received` | verifier | $179.00 posted to original payment |
 
-**Matching rule:** the photo is accepted when the top cosine score beats the next by at least 0.04. The `NN%` figure is a softmax over the top-5 scores (τ = 0.05). For near-ties, a recent delivery breaks the tie. If it's still ambiguous, the task goes to `awaiting_user` with a top-3 card ("Which of your orders is in the photo?").
+- **`damage_assessed`:** `inputs.description` is the vision model's description (`summary`, `damage[]`, `item_seen`). `inputs.evidence` is what the rules read from it (`physical_damage`, `battery_damage`). It's evidence only and never a decision.
+- **`decision_made` with a damaged battery:**
+  - `sources` starts with the Senso clause "5. Damaged batteries".
+  - `inputs.return_method` is `in_store_dropoff`. The other values are `battery_safe_label` and `standard`.
+  - `inputs.return_reason` is `damaged`.
+  - `rejected_options` includes "standard return mail" and "battery-safe return label", with reasons.
+- **The task's `details`** gain `damage { summary, battery_damage, … }` and `return_method`. The reminder title becomes "Drop off at store: …".
+
+**Matching rule:**
+- The top cosine score must be **≥ 0.49** (`MATCH_FLOOR`) **and** beat the next by **≥ 0.04**. Both were calibrated with real SigLIP; see NOTES.md.
+- **Below the floor:** the task is `failed` with `decision: "no_match"` (an `order_matched` step with "No matching order: nothing was filed"). No card is shown.
+- **Near-ties above the floor:** a recent delivery breaks the tie. If it's still ambiguous, the task goes to `awaiting_user` with a top-3 card.
+- **The `NN%` figure** is a softmax over the top-5 scores (τ = 0.05).
 
 **Other branches:**
 - Past the return window but under warranty: `claim_filed`.

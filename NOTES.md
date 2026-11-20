@@ -50,5 +50,24 @@ Conflicts between `generalcontext.md` and sponsor docs, plus build decisions. Sp
   - Slot: the next half-hour at least 1 h out (so the alert is still ahead), 9:00–18:00, no Sundays, on or before the deadline; otherwise ASAP.
   - The first call triggers the macOS Automation (TCC) prompt for the app hosting the dev servers, and the 15 s timeout falls back to the mock calendar until it's allowed.
 
+## Block 5: real earbuds photo is the primary photo demo
+- **Photo calibration** (real SIE `google/siglip-so400m-patch14-384`, 16 seeded orders, 2026-11-20). The true match for `mock/photos/demo_broken_earbuds.jpg` is NWA-10388:
+
+  | Photo | Top | Score | Runner-up | Margin |
+  |---|---|---|---|---|
+  | `demo_broken_earbuds.jpg` (real photo) | NWA-10388 Pulse | **0.5461** | NWA-10421 Arc ANC 0.3969 | **0.1492** |
+  | `demo_broken_headphones.png` (placeholder) | NWA-10421 Arc ANC | 0.7901 | NWA-09877 Studio 0.6434 | 0.1467 |
+  | `fixtures/unrelated_photo.png` | NWA-10388 | 0.4361 | NWA-09877 0.4146 | 0.0215 |
+
+  The rest of the earbuds photo's scores: DAC 0.397, Studio 0.381, speakers 0.373, lamp 0.350, everything else ≤ 0.29.
+  - **`MATCH_FLOOR = 0.49`**: the midpoint between the unrelated photo's best score (0.436) and the real match (0.546), about ±0.05 either side. Below the floor → `no_match` (nothing filed, no top-3 card).
+  - **`MATCH_MARGIN = 0.04`** is unchanged; the earbuds margin is 3.7× that.
+- **Pulse product image** is a generated, generic white stem-style earbud card (no brand marks). It lives in `mock/product_images/` because `mock/static/` is being restyled separately; the mock server serves it at the same `/static/products/<name>` URL, and ingest reads the same lookup order.
+- **damage_assessed:** Claude vision (`claude-opus-5-5`, image + JSON prompt) only DESCRIBES the damage. `rules.damage_evidence` reads the words (exposed/swollen/… battery) and ignores the model's own booleans. Without `ANTHROPIC_API_KEY` the description comes from the labeled sidecar for known demo photos (`mock/photos/labels.json`, audit model `mock:llm`).
+- **Damaged batteries:** Northwind policy §5 plus summary keys (`damaged_battery_standard_mail: false`, `damaged_battery_methods`, refund timing). `rules.choose_return_method` picks in-store drop-off (refund at drop-off) over the battery-safe label (refund after inspection) and rejects standard mail. `decision_made` cites the Senso §5 chunk.
+- **Portal:** the agent sends `return_method` as a form field (the merchant validates it and puts it in the confirmation email) and uses reason `damaged` ("Defective / damaged"). The portal and label templates don't show the method yet; that's a template change for the restyle owner.
+- **Fixed: a staged-reset race.** The scheduled 30 s loop pass grabbed `LOOP_LOCK` the moment the re-seed released it, so the reset's own staging pass queued behind it (two ~3 s passes back to back), and the staged refunds landed after the 19 s cutoff. `background_loop.quiet()` now makes scheduled passes skip while a reset is staging. 5 resets in a row: 11.4–13.1 s.
+- **Fixed:** continuation summary chunks were hard-labeled "5. Policy summary", which went stale once the summary moved to §6. They're now "Policy summary (continued)".
+
 ## Sponsor doc conflicts
 - SIE `api.md` documents the self-hosted server (raw slashes in model paths, msgpack default). Hosted needs URL-encoded model IDs and JSON. We follow the hosted examples.

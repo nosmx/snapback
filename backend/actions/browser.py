@@ -34,6 +34,12 @@ def portal_page() -> Iterator["object"]:
 
 
 def set_hidden(page, **fields: str) -> None:
+    """Fill hidden form fields; a field the form doesn't have yet (e.g. return_method) is added to the
+    form being submitted."""
     page.evaluate(
-        "(f) => { for (const [k, v] of Object.entries(f)) {"
-        " const el = document.querySelector(`input[name=${k}]`); if (el) el.value = v; } }", fields)
+        "(f) => { const btn = document.querySelector('[data-testid=submit-return], [data-testid=place-order]');"
+        " const form = (btn && btn.form) || document.querySelector('form');"
+        " for (const [k, v] of Object.entries(f)) {"
+        "  let el = document.querySelector(`input[name=${k}]`);"
+        "  if (!el && form) { el = document.createElement('input'); el.type = 'hidden'; el.name = k; form.appendChild(el); }"
+        "  if (el) el.value = v; } }", fields)

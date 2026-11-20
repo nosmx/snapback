@@ -22,7 +22,16 @@ If the price of an item you bought drops on northwind-audio.example within 14 da
 
 All Northwind Audio products carry a 1-year limited warranty from the delivery date that covers defects in materials and workmanship. Warranty claims are handled as repair or replacement at our discretion. Physical damage, liquid damage and normal wear are not covered.
 
-## 5. Policy summary
+## 5. Damaged batteries
+
+Items with a damaged, swollen, punctured or exposed lithium battery must not be sent in standard return mail. Return them one of two ways:
+
+- In-store drop-off at any Northwind Audio store. Staff seal the item in a fire-safe bag, and the refund is issued at drop-off.
+- A prepaid battery-safe return label (UN3481), requested through the returns portal. The carrier collects the item in a battery-safe pouch within 5 business days, and the refund is issued after inspection.
+
+Defective-item terms (section 2) still apply: no restocking fee and no return shipping charge.
+
+## 6. Policy summary
 
 - return_window_days: 30
 - return_window_starts: delivery
@@ -34,3 +43,7 @@ All Northwind Audio products carry a 1-year limited warranty from the delivery d
 - price_adjustment_allowed: true
 - warranty_days: 365
 - refund_method: original_payment
+- damaged_battery_standard_mail: false
+- damaged_battery_methods: in_store_dropoff, battery_safe_label
+- damaged_battery_refund_in_store: at_dropoff
+- damaged_battery_refund_label: after_inspection

@@ -1,0 +1,13 @@
+id: S18
+name: Real photo of broken earbuds -> damaged battery -> in-store return + Pulse Pro
+steps:
+  - photo: mock/photos/demo_broken_earbuds.jpg
+  - wait: {status: [done, failed], timeout: 55}
+expect:
+  status: done
+  decision: return_and_replace
+  rule_passed: policy.damaged_battery_clause
+  step_order: [order_matched, damage_assessed, policy_retrieved, decision_made, return_filed, order_placed, refund_received]
+  inputs_contain: {order_matched: NWA-10388, return_filed: in_store_dropoff}
+  decision_contains: {decision_made: in-store drop-off, reminder_added: Drop off at store, order_placed: Pulse Pro}
+max_seconds: 55

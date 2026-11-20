@@ -243,7 +243,7 @@ def answer_approval(aid: str, option_id: str, client_inquiry_id: Optional[str] =
 # ---------------- shared flow pieces ----------------
 
 def execute_return(tid: str, order: Dict[str, Any], reason_code: str, authorized_by: str,
-                   verified_by: str = "") -> Optional[Dict[str, Any]]:
+                   verified_by: str = "", return_method: str = "standard") -> Optional[Dict[str, Any]]:
     """Browser agent files the return; verifier confirms the email; reminder added. Returns the return record."""
     key = f"return:{order['order_id']}"
     if not order.get("ship_zip"):
@@ -256,7 +256,7 @@ def execute_return(tid: str, order: Dict[str, Any], reason_code: str, authorized
         return None
     update_task(tid, status="executing", summary=f"Filing the return for {order['item_name']} on the store's portal…")
     res = returns_portal.file_return(order["store"], order["order_id"], order.get("ship_zip") or "", reason_code,
-                                     idempotency_key=key, verified_by=verified_by)
+                                     idempotency_key=key, verified_by=verified_by, return_method=return_method)
     if not res["ok"]:
         step(tid, "return_filed", f"Return failed: {res.get('error', 'portal error')}",
              reason="The portal rejected the return after a retry; a request was drafted to store support instead.",
@@ -264,17 +264,19 @@ def execute_return(tid: str, order: Dict[str, Any], reason_code: str, authorized
              model="playwright", verified=False)
         update_task(tid, status="failed", summary=f"Return could not be filed: {res.get('error')}")
         return None
-    step(tid, "return_filed", f"Return {res['rma']} filed · refund {rules.money(res['refund_amount'])}",
-         reason=f"The browser agent looked up order {order['order_id']} by order number and ZIP and submitted the return.",
-         inputs={"order_id": order["order_id"], "reason_code": reason_code, "idempotency_key": key,
-                 "attempts": res.get("attempts"), "label_url": res.get("label_url")},
+    how = rules.RETURN_METHOD_LABELS.get(return_method, return_method)
+    step(tid, "return_filed", f"Return {res['rma']} filed · {how} · refund {rules.money(res['refund_amount'])}",
+         reason=(f"The browser agent looked up order {order['order_id']} by order number and ZIP and submitted the return"
+                 + (f" as {how}, as the policy requires for a damaged battery." if return_method != "standard" else ".")),
+         inputs={"order_id": order["order_id"], "reason_code": reason_code, "return_method": return_method,
+                 "idempotency_key": key, "attempts": res.get("attempts"), "label_url": res.get("label_url")},
          sources=[{"doc": "Returns portal confirmation", "section": res["rma"], "url": res.get("confirmation_url"),
                    "retrieved_at": clock.iso(clock.now())}],
          authorized_by=authorized_by, model="playwright", track={"store": order["store"], "rma": res["rma"]})
     set_order_status(order["order_id"], "returned")
     by = date.fromisoformat(res["drop_off_by"])
     rem = calendar.add_dropoff_reminder(tid, item=order["item_name"], store_name=rules.STORE_NAMES.get(order["store"], order["store"]),
-                                        rma=res["rma"], label_url=res.get("label_url"), by=by)
+                                        rma=res["rma"], label_url=res.get("label_url"), by=by, method=return_method)
     where = {"apple_calendar": "Apple Calendar", "mock": "Snapback mock calendar", "ics": ".ics file"}[rem["method"]]
     fell_back = [a for a in rem["attempts"] if not a["ok"]]
     step(tid, "reminder_added", f"“{rem['title']}” · {rem['time_label']} · {where} (deadline {by})",
@@ -286,7 +288,7 @@ def execute_return(tid: str, order: Dict[str, Any], reason_code: str, authorized
          sources=[{"doc": "Return label", "section": res["rma"], "url": res.get("label_url"),
                    "retrieved_at": clock.iso(clock.now())}],
          authorized_by=authorized_by, model=rem["model"], verified=rem["method"] != "ics")
-    update_task(tid, rma=res["rma"], label_url=res.get("label_url"), refund_expected=res["refund_amount"],
+    update_task(tid, rma=res["rma"], label_url=res.get("label_url"), refund_expected=res["refund_amount"], return_method=return_method,
                 ics_url=rem["ics_url"], reminder={k: rem.get(k) for k in ("method", "title", "start", "time_label",
                                                                           "calendar_url", "ics_url")})
     return res

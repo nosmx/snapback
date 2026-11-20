@@ -21,13 +21,13 @@ orders:
     carrier_status: delivered
 
   - id: e02
-    scenario: photo distractor (earbuds)
+    scenario: PRIMARY photo demo (real photo mock/photos/demo_broken_earbuds.jpg) -> damaged battery -> in-store return + Pulse Pro
     store: northwind-audio
     order_no: NWA-10388
     sku: NWA-PULSE-EB
-    price: 129.00
-    ordered_days_ago: 23
-    delivered_days_ago: 20
+    price: 179.00
+    ordered_days_ago: 17
+    delivered_days_ago: 14
     tracking: NWA1Z54877
     carrier_status: delivered
 

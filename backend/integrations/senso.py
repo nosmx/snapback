@@ -160,7 +160,7 @@ def _best_section(text: str, chunk_index: int, question: str) -> Tuple[str, str,
         if not body:
             continue
         if not head:
-            head = "5. Policy summary" if re.search(r"^-\s*[a-z_]+:", body, re.MULTILINE) else f"chunk {chunk_index}"
+            head = "Policy summary (continued)" if re.search(r"^-\s*[a-z_]+:", body, re.MULTILINE) else f"chunk {chunk_index}"
         words = set(_TOKEN.findall((head + " " + body).lower().replace("_", " ")))
         overlap = len(q & words) + 2 * len(q & set(_TOKEN.findall(head.lower())))
         if overlap > best[2]:
@@ -192,7 +192,7 @@ def _real_query(question: str, store: Optional[str], k: int) -> Dict[str, Any]:
             "chunk_index": ch.get("chunk_index"), "score": ch.get("score"), "_overlap": overlap,
         })
     # prose clauses first for the human-facing citation; Senso's score breaks ties
-    citations.sort(key=lambda c: (c["section"].endswith("Policy summary"), -c["_overlap"], -(c["score"] or 0)))
+    citations.sort(key=lambda c: ("Policy summary" in c["section"], -c["_overlap"], -(c["score"] or 0)))
     for c in citations:
         c.pop("_overlap", None)
     return {"answer": citations[0]["quote"] if citations else "", "citations": citations, "found": bool(citations)}
@@ -242,7 +242,8 @@ def policy_summary(store: str) -> Tuple[Optional[Dict[str, Any]], Optional[Dict[
     """Returns (facts, citation, meta). facts is None when no verified policy exists -> do not act.
     Merges summary lines across chunks in case Senso split the list."""
     res, meta = query("Policy summary: return_window_days restocking_fee return_shipping "
-                      "price_adjustment_window_days price_adjustment_allowed warranty_days", store=store, k=5)
+                      "price_adjustment_window_days price_adjustment_allowed warranty_days damaged_battery_methods",
+                      store=store, k=5)
     facts: Dict[str, Any] = {}
     cite = None
     for cit in res.get("citations", []):

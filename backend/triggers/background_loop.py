@@ -20,6 +20,13 @@ from backend.integrations.singlestore import db
 
 log = logging.getLogger("snapback.loop")
 LOOP_LOCK = threading.RLock()          # held while a pass runs; demo reset takes it too
+_quiet_until = 0.0                     # scheduled passes skip until then (a demo reset runs its own pass)
+
+
+def quiet(seconds: float) -> None:
+    """Hold off scheduled passes, so a demo reset's own pass isn't queued behind one."""
+    global _quiet_until
+    _quiet_until = time.time() + seconds
 _lock_fh = None
 _facts_cache: Dict[str, Tuple[float, Optional[Dict[str, Any]]]] = {}
 
@@ -35,9 +42,11 @@ def screening_facts(store: str, ttl_s: float = 600) -> Optional[Dict[str, Any]]:
     return facts
 
 
-def run_once() -> Dict[str, int]:
+def run_once(scheduled: bool = False) -> Dict[str, int]:
     stats = {"tasks": 0, "refunds_closed": 0, "new_orders": 0}
     with LOOP_LOCK:
+        if scheduled and time.time() < _quiet_until:
+            return stats
         try:
             stats["new_orders"] = len(ingest_new_emails())   # e.g. confirmations of purchases
         except Exception as e:
@@ -81,7 +90,7 @@ def start() -> bool:
         time.sleep(2)
         while True:
             try:
-                s = run_once()
+                s = run_once(scheduled=True)
                 if s["tasks"] or s["refunds_closed"]:
                     log.info("loop pass: %s", s)
             except Exception as e:

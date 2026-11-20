@@ -170,13 +170,22 @@ def _write_ics(task_id: str, title: str, notes: str, location: str, start: datet
 
 
 def add_dropoff_reminder(task_id: str, *, item: str, store_name: str, rma: str, label_url: Optional[str],
-                         by: date, location: str = "Carrier drop-off point") -> Dict[str, Any]:
+                         by: date, method: str = "standard") -> Dict[str, Any]:
     """Create the reminder (Apple Calendar -> mock calendar -> .ics) and describe what happened."""
-    title = f"Drop off return: {item} ({store_name})"
+    if method == "in_store_dropoff":
+        title, location = f"Drop off at store: {item} ({store_name})", f"{store_name} store"
+        how = f"In-store drop-off at any {store_name} store (damaged battery: do NOT mail it)"
+    elif method == "battery_safe_label":
+        title, location = f"Battery-safe return pickup: {item} ({store_name})", "Carrier pickup (battery-safe pouch)"
+        how = "Prepaid battery-safe label (UN3481): hand it to the carrier in the battery-safe pouch, not standard mail"
+    else:
+        title, location = f"Drop off return: {item} ({store_name})", "Carrier drop-off point"
+        how = "Prepaid return label: drop it at any carrier location"
     start = next_slot(by, clock.local_now())
     end = start + timedelta(minutes=DURATION_MIN)
     task_url = f"{settings.app_base_url.rstrip('/')}/tasks/{task_id}"
-    notes = "\n".join([f"RMA: {rma}", f"Return label: {label_url or 'see the Snapback task'}",
+    notes = "\n".join([f"Method: {how}", f"RMA: {rma}",
+                       f"{'Drop-off slip' if method == 'in_store_dropoff' else 'Return label'}: {label_url or 'see the Snapback task'}",
                        f"Snapback task: {task_url}", f"Drop off by: {by:%a, %b} {by.day} (return deadline)"])
     ics_url = _write_ics(task_id, title, notes, location, start, end)
     out: Dict[str, Any] = {
@@ -185,7 +194,7 @@ def add_dropoff_reminder(task_id: str, *, item: str, store_name: str, rma: str, 
         "time_label": f"{start:%a, %b} {start.day} · {start:%I:%M %p}".replace(" 0", " "),
         "alarm_minutes_before": ALARM_MIN, "calendar": settings.calendar_name, "drop_off_by": by.isoformat(),
         "remind_on": start.date().isoformat(), "ics_url": ics_url, "calendar_url": None, "event_id": None,
-        "task_url": task_url, "model": "ics",
+        "task_url": task_url, "model": "ics", "return_method": method, "location": location,
     }
     attempts: List[Dict[str, Any]] = []
     mode = current_mode()

@@ -1,0 +1,11 @@
+id: S03
+name: Unrelated photo -> no_match (below MATCH_FLOOR), nothing filed
+steps:
+  - photo: tests/scenarios/fixtures/unrelated_photo.png
+  - wait: {status: [awaiting_user, failed, done], timeout: 20}
+expect:
+  status: failed
+  decision: no_match
+  rule_failed: match.floor
+  steps_include: [photo_identified, order_matched]
+  steps_exclude: [damage_assessed, user_notified, return_filed]

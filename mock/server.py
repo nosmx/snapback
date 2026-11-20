@@ -13,19 +13,32 @@ from datetime import date, datetime, timedelta
 from typing import Any, Dict, Optional
 
 from fastapi import FastAPI, Form, HTTPException, Request
-from fastapi.responses import HTMLResponse, JSONResponse, RedirectResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, RedirectResponse
 from fastapi.staticfiles import StaticFiles
 from fastapi.templating import Jinja2Templates
 
 from mock import world as W
 
 app = FastAPI(title="Snapback mock merchant world")
+
+
+@app.get("/static/products/{name}", include_in_schema=False)
+def product_image(name: str):
+    """Product photos: mock/product_images first (kept outside mock/static), then mock/static/products.
+    Registered before the /static mount so it takes precedence."""
+    path = W.product_image_path(name)
+    if not path:
+        raise HTTPException(404, "no such product image")
+    return FileResponse(path)
+
+
 app.mount("/static", StaticFiles(directory=str(W.MOCK / "static")), name="static")
 app.mount("/photos", StaticFiles(directory=str(W.PHOTOS)), name="photos")
 T = Jinja2Templates(directory=str(W.MOCK / "templates"))
 
 REASONS = [
     ("defective", "Item is defective or stopped working"),
+    ("damaged", "Defective / damaged"),
     ("arrived_damaged", "Arrived damaged"),
     ("no_longer_needed", "No longer needed"),
     ("wrong_item", "Wrong item received"),
@@ -149,8 +162,11 @@ def returns_lookup(request: Request, store_id: str, order_no: str = Form(...), z
 @app.post("/s/{store_id}/returns/submit", response_class=HTMLResponse)
 def returns_submit(request: Request, store_id: str, order_no: str = Form(...), zip_code: str = Form(...),
                    reason: str = Form(...), refund_method: str = Form("original_payment"),
-                   idempotency_key: str = Form(""), verified_by: str = Form("")):
+                   idempotency_key: str = Form(""), verified_by: str = Form(""),
+                   return_method: str = Form("standard")):
     store = _store(store_id)
+    if return_method not in RETURN_METHODS:
+        return _error(request, store, "Unknown return method", f"'{return_method}' is not a return method we offer.", 400)
     w = W.world()
     if w.get("fail_next_submit"):
         w["fail_next_submit"] = False
@@ -173,7 +189,7 @@ def returns_submit(request: Request, store_id: str, order_no: str = Form(...), z
                       "This order is past its return window. For defects, please file a warranty claim.", 409)
 
     rules = store["merchant_rules"]
-    defective = reason in ("defective", "arrived_damaged")
+    defective = reason in ("defective", "arrived_damaged", "damaged")
     restocking = 0.0 if defective else round(o["price"] * rules["restocking_pct_non_defective"] / 100, 2)
     shipping = 0.0 if defective else float(rules["return_shipping_non_defective"])
     refund = round(o["price"] - restocking - shipping, 2)
@@ -184,6 +200,8 @@ def returns_submit(request: Request, store_id: str, order_no: str = Form(...), z
         "refund_amount": refund, "label_url": f"{W.MERCHANT_BASE_URL}/s/{store_id}/returns/label/{rma}",
         "drop_off_by": (_today() + timedelta(days=7)).isoformat(), "created_at": W.now().isoformat(timespec="seconds"),
         "idempotency_key": idempotency_key or None, "verified_by": verified_by or None,
+        "return_method": return_method, "return_method_label": RETURN_METHODS[return_method][0],
+        "return_instructions": RETURN_METHODS[return_method][1].format(store=store["name"]),
     }
     m["returns"].append(ret)
     m["orders"][o["order_no"]]["status"] = "return_requested"
@@ -198,8 +216,11 @@ def returns_submit(request: Request, store_id: str, order_no: str = Form(...), z
         body_text=(f"Your return for {o['name']} (order {o['order_no']}) is approved.\n"
                    f"Return authorization: {rma}\nRefund amount: ${refund:.2f} to your original payment method\n"
                    f"Restocking fee: ${restocking:.2f} · Return shipping: ${shipping:.2f}\n"
-                   f"Print your label: {ret['label_url']}\nPlease drop off by {ret['drop_off_by']}."),
-        kind="return_confirmation", meta={"rma": rma, "order_no": o["order_no"], "refund_amount": refund},
+                   f"Return method: {ret['return_method_label']}. {ret['return_instructions']}\n"
+                   f"{'Print your label' if return_method != 'in_store_dropoff' else 'Your drop-off slip'}: {ret['label_url']}\n"
+                   f"Please drop off by {ret['drop_off_by']}."),
+        kind="return_confirmation", meta={"rma": rma, "order_no": o["order_no"], "refund_amount": refund,
+                                          "return_method": return_method},
     )
     return _page(request, "returns_confirm.html", store, ret=ret, order=o, already=False)
 
@@ -211,6 +232,15 @@ def return_label(request: Request, store_id: str, rma: str):
     if not ret:
         return _error(request, store, "Label not found", "No return with that authorization number.", 404)
     return _page(request, "label.html", store, ret=ret)
+
+
+RETURN_METHODS = {
+    "standard": ("Prepaid return label", "Pack the item and drop it at any carrier location."),
+    "in_store_dropoff": ("In-store drop-off", "Bring the item to any {store} store; staff seal damaged batteries in a "
+                                             "fire-safe bag. Do not mail it."),
+    "battery_safe_label": ("Battery-safe return label (UN3481)", "The carrier collects the item in a battery-safe pouch "
+                                                                "within 5 business days. Do not use standard mail."),
+}
 
 
 # ---------------- checkout ----------------

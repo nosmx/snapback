@@ -24,7 +24,7 @@ def _confirmation(page) -> Dict[str, Any]:
 
 
 def file_return(store: str, order_no: str, zip_code: str, reason: str, idempotency_key: str,
-                verified_by: str = "") -> Dict[str, Any]:
+                verified_by: str = "", return_method: str = "standard") -> Dict[str, Any]:
     attempts: List[Dict[str, Any]] = []
     with portal_page() as page:
         for attempt in (1, 2):
@@ -40,7 +40,7 @@ def file_return(store: str, order_no: str, zip_code: str, reason: str, idempoten
                 attempts.append({"channel": "portal", "attempt": attempt, "step": "lookup", "error": msg})
                 return {"ok": False, "error": msg, "attempts": attempts}
             page.get_by_test_id("reason").select_option(reason)
-            set_hidden(page, idempotency_key=idempotency_key, verified_by=verified_by)
+            set_hidden(page, idempotency_key=idempotency_key, verified_by=verified_by, return_method=return_method)
             page.get_by_test_id("submit-return").click()
             page.wait_for_selector('[data-testid="return-confirmation"], [data-testid="error"]')
             if page.locator('[data-testid="return-confirmation"]').count():

@@ -1,13 +1,17 @@
 """Photo trigger (generalcontext §6): identify -> match order -> policy -> decide -> act -> replace -> verify.
 
-Matching is MARGIN-based: SigLIP absolute cosine scores sit ~0.5-0.8, so we accept when the top
-candidate beats the runner-up by >= MATCH_MARGIN; near-ties are broken by recent delivery; if still
-ambiguous the user gets a top-3 tap (last resort, §5.6).
+Matching: the top candidate must clear MATCH_FLOOR (else no_match: nothing is filed) and beat the
+runner-up by >= MATCH_MARGIN; near-ties are broken by recent delivery; if still ambiguous the user
+gets a top-3 tap (last resort, §5.6). Both were calibrated with real SigLIP; see NOTES.md.
+
+Damage: Claude vision DESCRIBES the photo (damage_assessed); rules.damage_evidence reads that
+description, and the cited Senso policy decides the return method (e.g. damaged battery -> in-store).
 """
 from __future__ import annotations
 
 import math
 import subprocess
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -22,6 +26,8 @@ from backend.integrations.base import model_label
 from backend.integrations.singlestore import db
 
 MATCH_MARGIN = 0.04
+MATCH_FLOOR = 0.49     # real photo of the Pulse earbuds 0.546 vs the unrelated fixture's best 0.436 (NOTES.md)
+_VISION = ThreadPoolExecutor(max_workers=2, thread_name_prefix="vision")
 UPLOADS = DATA_DIR / "uploads"
 STORE_NAMES = rules.STORE_NAMES
 
@@ -54,6 +60,7 @@ def run(tid: str, path: str, filename: str) -> None:
            inputs={"filename": filename, "bytes": Path(path).stat().st_size}, authorized_by="user",
            track={"trigger": "photo"})
     O.update_task(tid, status="executing")
+    vision = _VISION.submit(llm.describe_damage, path)      # runs while the photo is embedded and matched
 
     # ---- identify ----
     vec, imeta = sie.embed_image(path)
@@ -69,7 +76,21 @@ def run(tid: str, path: str, filename: str) -> None:
     # ---- match (margin-based) ----
     scores = [c["score"] for c in cands]
     margin = round(scores[0] - scores[1], 4) if len(scores) > 1 else 1.0
-    checks = [rules.check("match.margin", margin >= MATCH_MARGIN,
+    floor_ok = bool(scores) and scores[0] >= MATCH_FLOOR
+    if not floor_ok:
+        best = f"best {cands[0]['order_id']} {scores[0]:.3f}" if cands else "no order images"
+        O.step(tid, "order_matched", "No matching order: nothing was filed",
+               reason="The photo doesn't look like any product from your order emails, so Snapback won't guess.",
+               inputs={"candidates": cands[:3], "match_floor": MATCH_FLOOR},
+               rejected=[{"option": f"{c['order_id']} {c['item']}", "reason": f"similarity {c['score']:.3f} < floor {MATCH_FLOOR}"}
+                         for c in cands[:3]],
+               rules_checked=[rules.check("match.floor", False, f"{best} (needs >= {MATCH_FLOOR})")],
+               authorized_by="mandate:auto_return_defective", model=model_label(imeta, sie.model_name("image")))
+        O.update_task(tid, status="failed", decision="no_match", title="No matching order",
+                      summary="Snapback couldn't match this photo to any of your orders, so it didn't act. Try another photo or tell it in chat.")
+        return
+    checks = [rules.check("match.floor", True, f"top {cands[0]['order_id']} {scores[0]:.3f} >= {MATCH_FLOOR}"),
+              rules.check("match.margin", margin >= MATCH_MARGIN,
                           f"top {cands[0]['order_id']} {scores[0]:.3f} vs next {cands[1]['order_id']} {scores[1]:.3f}: "
                           f"margin {margin:.3f} (needs >= {MATCH_MARGIN})")]
     chosen = cands[0]
@@ -83,6 +104,7 @@ def run(tid: str, path: str, filename: str) -> None:
         if len(recent) == 1:
             chosen = recent[0]
         else:
+            _assess_damage(tid, vision, filename)
             return _ask_top3(tid, cands[:3], orders, checks)
     order = orders[chosen["order_id"]]
     pct = _confidence(scores)
@@ -99,8 +121,31 @@ def run(tid: str, path: str, filename: str) -> None:
                      for c in cands if c["order_id"] != order["order_id"]][:3],
            rules_checked=checks, authorized_by="mandate:auto_return_defective",
            model=ext.get("model") or "", track={"store": order["store"], "confidence": pct})
+    _assess_damage(tid, vision, filename, order)
 
     after_match(tid, order, mandate)
+
+
+def _assess_damage(tid: str, vision: Any, filename: str, order: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """damage_assessed: the vision model's description is evidence; rules read it."""
+    try:
+        desc, dmeta = vision.result(timeout=40)
+    except Exception as e:  # never block the flow on the evidence step
+        desc, dmeta = {"summary": "not assessed (vision error)", "damage": []}, {"model": "mock:llm", "error": str(e)[:200]}
+    ev = rules.damage_evidence(desc)
+    t = O.get_task(tid) or {}
+    photo_url = (t.get("details") or {}).get("photo_url")
+    O.step(tid, "damage_assessed", f"Damage: {desc.get('summary')}" if ev["assessed"] else "Damage: not assessed",
+           reason=("A vision model described what's visibly wrong. That description is evidence only; "
+                   "the store policy and Snapback's rules decide what happens."),
+           inputs={"description": desc, "evidence": {k: ev[k] for k in ("physical_damage", "battery_damage")},
+                   "item": order["item_name"] if order else None, "error": dmeta.get("error")},
+           sources=[{"doc": "Your photo", "section": filename, "url": photo_url, "retrieved_at": clock.iso(clock.now())}],
+           rules_checked=ev["rules"], authorized_by="mandate:auto_return_defective", model=dmeta.get("model", ""),
+           cost_usd=dmeta.get("cost_usd"), latency_ms=dmeta.get("latency_ms"))
+    O.update_task(tid, damage={"summary": desc.get("summary"), "assessed": ev["assessed"],
+                               "physical_damage": ev["physical_damage"], "battery_damage": ev["battery_damage"]})
+    return ev
 
 
 def after_match(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> None:
@@ -122,6 +167,16 @@ def after_match(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> Non
            authorized_by="mandate:auto_return_defective", model=model_label(smeta, "senso:search/context"),
            latency_ms=smeta.get("latency_ms"), track={"store": order["store"]})
 
+    # ---- damage evidence -> return method (cited policy decides) ----
+    damage = ((O.get_task(tid) or {}).get("details") or {}).get("damage") or {}
+    method = {"method": "standard", "rules": [], "rejected": []}
+    if facts and damage.get("battery_damage"):
+        bres, _ = senso.query("damaged swollen exposed lithium battery return mail in-store drop-off battery-safe label",
+                              store=order["store"])
+        battery_clause = next((c for c in bres.get("citations", []) if "batter" in c["section"].lower()), None)
+        method = rules.choose_return_method(facts, True, battery_clause)
+        sources = O.senso_source(battery_clause) + sources
+
     # ---- decide (rules) ----
     d = rules.decide_defect(order, facts, mandate)
     template = {
@@ -134,14 +189,24 @@ def after_match(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> Non
                                                 "rules": d["rules"]})
     label = {"return_and_replace": "Return + replacement", "warranty_claim": "Warranty claim",
              "buy_fix": "Buy a replacement (needs your OK)", "do_not_act": "Do not act: no verified policy"}[d["decision"]]
-    O.step(tid, "decision_made", label, reason=reason, inputs={"decision": d["decision"]},
-           sources=sources, rejected=d["rejected"], rules_checked=d["rules"], authorized_by=d["authorized_by"],
+    returning = d["decision"] == "return_and_replace"
+    if returning and method["method"] != "standard":
+        label += f" · {rules.RETURN_METHOD_LABELS[method['method']]} (damaged battery)"
+        reason += (f" The photo shows a damaged battery and the policy forbids standard return mail, so it goes back by "
+                   f"{rules.RETURN_METHOD_LABELS[method['method']]}.")
+    O.step(tid, "decision_made", label, reason=reason,
+           inputs={"decision": d["decision"], "return_method": method["method"] if returning else None,
+                   "return_reason": "damaged" if damage.get("physical_damage") else "defective",
+                   "damage": damage.get("summary")},
+           sources=sources, rejected=d["rejected"] + (method["rejected"] if returning else []),
+           rules_checked=d["rules"] + (method["rules"] if returning else []), authorized_by=d["authorized_by"],
            model=lmeta["model"], cost_usd=lmeta.get("cost_usd"), latency_ms=lmeta.get("latency_ms"),
            track={"decision": d["decision"], "store": order["store"]})
     O.update_task(tid, decision=d["decision"], authorized_by=d["authorized_by"], title=label)
 
     if d["decision"] == "return_and_replace":
-        return _return_and_replace(tid, order, mandate)
+        return _return_and_replace(tid, order, mandate, method=method["method"],
+                                   reason_code="damaged" if damage.get("physical_damage") else "defective")
     if d["decision"] == "warranty_claim":
         return _warranty(tid, order, mandate)
     if d["decision"] == "buy_fix":
@@ -149,9 +214,11 @@ def after_match(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> Non
     O.update_task(tid, status="failed", summary=f"No verified policy for {STORE_NAMES.get(order['store'], order['store'])}: Snapback did not act and flagged it for you.")
 
 
-def _return_and_replace(tid: str, order: Dict[str, Any], mandate: Dict[str, Any]) -> None:
+def _return_and_replace(tid: str, order: Dict[str, Any], mandate: Dict[str, Any], method: str = "standard",
+                        reason_code: str = "defective") -> None:
     persona_ref = f"persona:{mandate.get('_persona_inquiry_id')}"
-    ret = O.execute_return(tid, order, "defective", authorized_by="mandate:auto_return_defective", verified_by=persona_ref)
+    ret = O.execute_return(tid, order, reason_code, authorized_by="mandate:auto_return_defective", verified_by=persona_ref,
+                           return_method=method)
     if not ret:
         return
     # ---- replacement ----

@@ -1,4 +1,4 @@
-# Northwind Audio — Headphone Review Summaries
+# Northwind Audio — Headphone and Earbud Review Summaries
 
 Summaries of verified-buyer reviews, compiled November 2026. Northwind Audio is a fictional store used for the Snapback demo.
 
@@ -21,3 +21,11 @@ Average rating 4.1 from 377 reviews. Light and comfortable, with average noise c
 ## Studio Monitor Headphones (NWA-STUDIO-MH)
 
 Average rating 4.4 from 655 reviews. Wired, closed-back monitors; praised for accuracy, not intended for commuting.
+
+## Pulse True Wireless Earbuds (NWA-PULSE-EB)
+
+Average rating 3.2 from 931 reviews. Sound and noise cancelling are good for the price, but 18% of reviews report the housing cracking open near the stem within two months, and several mention the battery being exposed or swelling afterwards.
+
+## Pulse Pro Wireless Earbuds (NWA-PULSE-PRO)
+
+Average rating 4.7 from 1,064 reviews. The Pro uses a reinforced one-piece housing; housing failures appear in under 1% of reviews. Adaptive noise cancelling and the 9-hour battery are frequently praised.

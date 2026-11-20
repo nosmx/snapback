@@ -63,7 +63,10 @@ def build(email: Dict[str, Any]) -> Tuple[Dict[str, Any], Dict[str, Any]]:
     clean, flags = detect_injection(email["body_text"])
     ext, emeta = cached("extract", (clean + "|" + email["from"]).encode(), lambda: sie.extract(clean, email["from"]))
     f = ext["fields"]
-    img = MOCK_DIR / "static" / "products" / email["image"] if email.get("image") else None
+    img = None
+    if email.get("image"):   # same lookup as the merchant's /static/products/<name>: overrides first
+        img = next((d / email["image"] for d in (MOCK_DIR / "product_images", MOCK_DIR / "static" / "products")
+                    if (d / email["image"]).is_file()), None)
     vec = None
     if img and img.exists():
         vec, _ = cached("image", img.read_bytes(), lambda: sie.embed_image(str(img)))

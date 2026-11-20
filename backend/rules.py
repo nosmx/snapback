@@ -5,6 +5,7 @@ with its citation). Every check returns {rule, passed, evidence} for audit_log.r
 """
 from __future__ import annotations
 
+import re
 from datetime import date, datetime, timedelta
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -131,6 +132,74 @@ def decide_defect(order: Dict[str, Any], facts: Optional[Dict[str, Any]], mandat
     rejected = [{"option": "return_and_replace", "reason": f"Return window closed on {deadline}"},
                 {"option": "warranty_claim", "reason": "Warranty expired"}]
     return {"decision": "buy_fix", "rules": rules, "rejected": rejected, "authorized_by": "mandate:replacement"}
+
+
+
+# ---------------- damage evidence + return method ----------------
+
+_BATTERY_DAMAGE = re.compile(
+    r"\b(exposed|swollen|swelling|puffed|bulging|punctured|leaking|burnt|burned|charred|damaged|cracked)\b[^.;]{0,30}\bbatter(y|ies)\b"
+    r"|\bbatter(y|ies)\b[^.;]{0,30}\b(exposed|swollen|swelling|puffed|bulging|punctured|leaking|burnt|damaged|visible|showing)\b",
+    re.IGNORECASE)
+_PHYSICAL_DAMAGE = re.compile(r"\b(crack|cracked|broken|split|shattered|snapped|dent|dented|torn|exposed|burnt|swollen)\b",
+                              re.IGNORECASE)
+RETURN_METHOD_LABELS = {"standard": "standard return label", "in_store_dropoff": "in-store drop-off",
+                        "battery_safe_label": "battery-safe return label"}
+
+
+def damage_evidence(desc: Optional[Dict[str, Any]]) -> Dict[str, Any]:
+    """Turn the vision model's DESCRIPTION into evidence with deterministic patterns. The model's own
+    booleans are recorded but not trusted: the rules read the words it used."""
+    desc = desc or {}
+    text = "; ".join([str(desc.get("summary") or "")] + [str(x) for x in desc.get("damage") or []])
+    assessed = bool(desc.get("damage")) or (desc.get("summary") and "not assessed" not in str(desc.get("summary")))
+    battery = bool(_BATTERY_DAMAGE.search(text)) if assessed else None
+    physical = bool(_PHYSICAL_DAMAGE.search(text)) if assessed else None
+    rules = [check("evidence.physical_damage_visible", bool(physical),
+                   f"description: '{text[:120]}'" if assessed else "photo not assessed (vision model unavailable)"),
+             check("evidence.battery_damaged", bool(battery),
+                   (f"battery damage named in the description: '{text[:120]}'" if battery else
+                    "no battery damage named in the description") if assessed else "photo not assessed")]
+    return {"assessed": bool(assessed), "physical_damage": physical, "battery_damage": battery, "text": text, "rules": rules}
+
+
+def _methods(facts: Dict[str, Any]) -> List[str]:
+    raw = facts.get("damaged_battery_methods") or ""
+    return [m.strip() for m in str(raw).split(",") if m.strip() in RETURN_METHOD_LABELS]
+
+
+def choose_return_method(facts: Optional[Dict[str, Any]], battery_damage: Optional[bool],
+                         clause: Optional[Dict[str, Any]] = None) -> Dict[str, Any]:
+    """standard | in_store_dropoff | battery_safe_label. Facts come only from the cited Senso policy summary."""
+    facts = facts or {}
+    if not battery_damage:
+        return {"method": "standard", "rules": [check("return_method.standard", True, "no battery damage in the evidence")],
+                "rejected": []}
+    methods = _methods(facts)
+    mail_ok = facts.get("damaged_battery_standard_mail", True)
+    rules = [check("policy.damaged_battery_clause", bool(methods),
+                   (f"cited '{clause.get('section')}': " if clause else "") +
+                   f"damaged_battery_methods={facts.get('damaged_battery_methods')}, "
+                   f"damaged_battery_standard_mail={facts.get('damaged_battery_standard_mail')}")]
+    if not methods:
+        rules.append(check("return_method.conservative", True, "policy silent on damaged batteries: standard label, flagged"))
+        return {"method": "standard", "rules": rules, "rejected": []}
+    rejected = []
+    if mail_ok is False:
+        rejected.append({"option": "standard return mail", "reason": "Policy: damaged batteries can't go in standard return mail"})
+    # in-store drop-off refunds at drop-off; the battery-safe label refunds after inspection
+    if "in_store_dropoff" in methods and facts.get("damaged_battery_refund_in_store") == "at_dropoff":
+        method = "in_store_dropoff"
+    else:
+        method = methods[0]
+    for m in methods:
+        if m != method:
+            rejected.append({"option": RETURN_METHOD_LABELS[m],
+                             "reason": ("Refund only after inspection, pickup within 5 business days"
+                                        if m == "battery_safe_label" else "Slower refund than the chosen method")})
+    rules.append(check("return_method.battery_safe", True,
+                       f"{RETURN_METHOD_LABELS[method]}: refund {facts.get('damaged_battery_refund_in_store') if method == 'in_store_dropoff' else facts.get('damaged_battery_refund_label')}"))
+    return {"method": method, "rules": rules, "rejected": rejected}
 
 
 # ---------------- price drops ----------------

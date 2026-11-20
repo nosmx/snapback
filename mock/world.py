@@ -21,6 +21,8 @@ MOCK = Path(__file__).resolve().parent
 STATE = MOCK / "state"
 INBOX = MOCK / "emails" / "inbox"
 PRODUCTS = MOCK / "static" / "products"
+# Product photos kept outside mock/static (restyled separately); served at the same /static/products/<name>
+PRODUCT_OVERRIDES = MOCK / "product_images"
 PHOTOS = MOCK / "photos"
 PRICES_FILE = MOCK / "prices.json"
 MERCHANT_BASE_URL = "http://localhost:8001"
@@ -92,9 +94,21 @@ def seed_spec() -> Dict[str, Any]:
     return yaml.safe_load((MOCK / "emails" / "orders.yaml").read_text())
 
 
+def product_image_path(name: str) -> Optional[Path]:
+    """Where /static/products/<name> lives: mock/product_images first, then mock/static/products."""
+    for d in (PRODUCT_OVERRIDES, PRODUCTS):
+        p = d / name
+        if p.is_file() and p.resolve().parent == d.resolve():
+            return p
+    return None
+
+
 def product_image_name(sku: str) -> str:
-    """Prefer a real photo (<sku>.jpg) if the team dropped one in; else the generated card."""
+    """Prefer an override in mock/product_images, then a real photo (<sku>.jpg), else the generated card."""
     base = sku.lower()
+    for ext in (".png", ".jpg", ".jpeg"):
+        if (PRODUCT_OVERRIDES / f"{base}{ext}").exists():
+            return f"{base}{ext}"
     for ext in (".jpg", ".jpeg", ".png"):
         if (PRODUCTS / f"{base}{ext}").exists() and ext != ".png":
             return f"{base}{ext}"
@@ -237,6 +251,77 @@ def generate_product_images(force: bool = False) -> None:
         img.save(out)
 
 
+def _earbud(scale: int, tip=(214, 216, 220), band=(196, 199, 205)):
+    """One white stem-style in-ear earbud (generic, no brand marks) on a transparent layer, upright."""
+    from PIL import Image, ImageDraw, ImageFilter
+    W, H = 420 * scale // 2, 760 * scale // 2
+    layer = Image.new("RGBA", (W, H), (0, 0, 0, 0))
+    k = scale / 2
+    # stem: a cylinder with horizontal shading
+    sw, sh, sx, sy = int(92 * k), int(430 * k), int(150 * k), int(300 * k)
+    stem = Image.new("RGBA", (sw, sh))
+    sd = ImageDraw.Draw(stem)
+    for x in range(sw):
+        t = abs((x / (sw - 1)) * 2 - 1)
+        v = int(252 - 30 * t ** 2.2)
+        sd.line([(x, 0), (x, sh)], fill=(v, v, min(255, v + 2), 255))
+    mask = Image.new("L", (sw, sh), 0)
+    ImageDraw.Draw(mask).rounded_rectangle([0, 0, sw - 1, sh - 1], radius=sw // 2, fill=255)
+    layer.paste(stem, (sx, sy), mask)
+    d = ImageDraw.Draw(layer)
+    d.rounded_rectangle([sx + int(6 * k), sy + sh - int(46 * k), sx + sw - int(6 * k), sy + sh - int(4 * k)],
+                        radius=int(30 * k), fill=band + (255,))                       # metal end cap
+    d.rounded_rectangle([sx + int(20 * k), sy + int(120 * k), sx + int(30 * k), sy + int(250 * k)],
+                        radius=int(5 * k), fill=(232, 233, 236, 255))                 # touch strip
+    # head: glossy shaded ellipse
+    hx0, hy0, hx1, hy1 = int(60 * k), int(90 * k), int(330 * k), int(350 * k)
+    for i in range(40):
+        f = i / 40
+        v = int(226 + 29 * f)
+        inset = int(f * 70 * k)
+        d.ellipse([hx0 + inset * 0.6, hy0 + inset * 0.5, hx1 - inset * 1.4, hy1 - inset * 1.5], fill=(v, v, min(255, v + 2), 255))
+    d.ellipse([hx0 + int(170 * k), hy0 + int(70 * k), hx0 + int(215 * k), hy0 + int(115 * k)], fill=(70, 72, 76, 255))  # sensor mesh
+    # silicone ear tip
+    tx0, ty0, tx1, ty1 = int(250 * k), int(40 * k), int(400 * k), int(205 * k)
+    d.ellipse([tx0, ty0, tx1, ty1], fill=tip + (255,))
+    d.ellipse([tx0 + int(28 * k), ty0 + int(30 * k), tx1 - int(26 * k), ty1 - int(30 * k)], fill=(150, 152, 157, 255))
+    d.ellipse([tx0 + int(52 * k), ty0 + int(55 * k), tx1 - int(50 * k), ty1 - int(55 * k)], fill=(95, 97, 102, 255))
+    return layer.filter(ImageFilter.SMOOTH)
+
+
+def generate_override_images(force: bool = False) -> None:
+    """Product photos for the earbuds demo: clean white stem-style in-ear earbuds (generic, no brand
+    marks), written to mock/product_images so mock/static stays untouched."""
+    from PIL import Image, ImageDraw, ImageFilter
+    PRODUCT_OVERRIDES.mkdir(parents=True, exist_ok=True)
+    st, cat = stores(), catalog()
+    for sku, tip, band in (("NWA-PULSE-EB", (214, 216, 220), (196, 199, 205)),
+                           ("NWA-PULSE-PRO", (205, 208, 214), (150, 154, 162))):
+        out = PRODUCT_OVERRIDES / f"{sku.lower()}.png"
+        if (out.exists() and not force) or sku not in cat:
+            continue
+        S = 2                                         # draw at 2x, downsample for smooth edges
+        img = Image.new("RGB", (640 * S, 640 * S))
+        g = ImageDraw.Draw(img)
+        for y in range(640 * S):                      # soft studio backdrop
+            v = int(246 - 16 * (y / (640 * S)))
+            g.line([(0, y), (640 * S, y)], fill=(v, v, min(255, v + 3)))
+        shadow = Image.new("L", img.size, 0)
+        ImageDraw.Draw(shadow).ellipse([150 * S, 440 * S, 500 * S, 488 * S], fill=120)
+        img.paste((150, 152, 158), (0, 0), shadow.filter(ImageFilter.GaussianBlur(18 * S)))
+        bud = _earbud(S * 2, tip, band).resize((210 * S, 380 * S), Image.LANCZOS)
+        right = bud.rotate(-14, resample=Image.BICUBIC, expand=True)
+        left = bud.transpose(Image.FLIP_LEFT_RIGHT).rotate(12, resample=Image.BICUBIC, expand=True)
+        img.paste(left, (120 * S, 70 * S), left)
+        img.paste(right, (300 * S, 60 * S), right)
+        img = img.resize((640, 640), Image.LANCZOS)
+        d = ImageDraw.Draw(img)
+        store = st[cat[sku]["store"]]
+        d.text((40, 500), store["name"].upper(), font=_font(22), fill=_hex(store["color"]))
+        d.text((40, 535), cat[sku]["name"], font=_font(34), fill=(30, 30, 30))
+        img.save(out)
+
+
 def generate_demo_photo(force: bool = False) -> None:
     """Placeholder 'phone photo of the broken headphones' until the team drops in a real one
     (mock/photos/demo_broken_headphones.jpg). It is a re-photographed version of the Arc ANC
@@ -260,11 +345,19 @@ def generate_demo_photo(force: bool = False) -> None:
         shot.save(out)
     # Sidecar labels used ONLY by the mock embedder (labeled mock in the audit log), keyed by file
     # name and by content hash because uploads are renamed.
-    label = {"ref": "NWA-ARC-ANC", "similar": {"NWA-STUDIO-MH": 0.45, "NWA-PULSE-EB": 0.2}}
-    labels = {"demo_broken_headphones.png": label, "demo_broken_headphones.jpg": label}
-    for p in (out, PHOTOS / "demo_broken_headphones.jpg"):
+    label = {"ref": "NWA-ARC-ANC", "similar": {"NWA-STUDIO-MH": 0.45, "NWA-PULSE-EB": 0.2},
+             "damage": {"summary": "cracked headband hinge and cracked ear cup", "damage": ["cracked hinge", "cracked ear cup"],
+                        "battery_exposed_or_damaged": False, "item_seen": "over-ear headphones"}}
+    # the real phone photo of the broken earbuds (primary photo demo)
+    earbuds = {"ref": "NWA-PULSE-EB", "similar": {"NWA-ARC-ANC": 0.3, "NWA-STUDIO-MH": 0.25},
+               "damage": {"summary": "cracked housing split open, exposed battery and internal wiring",
+                          "damage": ["cracked housing", "exposed battery", "exposed wiring"],
+                          "battery_exposed_or_damaged": True, "item_seen": "white in-ear wireless earbud"}}
+    labels = {"demo_broken_headphones.png": label, "demo_broken_headphones.jpg": label,
+              "demo_broken_earbuds.jpg": earbuds}
+    for p, lab in ((out, label), (PHOTOS / "demo_broken_headphones.jpg", label), (PHOTOS / "demo_broken_earbuds.jpg", earbuds)):
         if p.exists():
-            labels["sha256:" + hashlib.sha256(p.read_bytes()).hexdigest()] = label
+            labels["sha256:" + hashlib.sha256(p.read_bytes()).hexdigest()] = lab
     _write(PHOTOS / "labels.json", labels)
 
 
@@ -359,6 +452,7 @@ def reset_world(stage_demo: bool = True, refund_delay_seconds: int = 10) -> Dict
 
         save_world({"clock_offset_hours": 0, "refund_delay_seconds": refund_delay_seconds, "fail_next_submit": False})
         generate_product_images()
+        generate_override_images()
         generate_demo_photo()
 
         spec = seed_spec()

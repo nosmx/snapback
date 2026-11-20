@@ -4,6 +4,15 @@
     "similar": {
       "NWA-STUDIO-MH": 0.45,
       "NWA-PULSE-EB": 0.2
+    },
+    "damage": {
+      "summary": "cracked headband hinge and cracked ear cup",
+      "damage": [
+        "cracked hinge",
+        "cracked ear cup"
+      ],
+      "battery_exposed_or_damaged": false,
+      "item_seen": "over-ear headphones"
     }
   },
   "demo_broken_headphones.jpg": {
@@ -11,6 +20,32 @@
     "similar": {
       "NWA-STUDIO-MH": 0.45,
       "NWA-PULSE-EB": 0.2
+    },
+    "damage": {
+      "summary": "cracked headband hinge and cracked ear cup",
+      "damage": [
+        "cracked hinge",
+        "cracked ear cup"
+      ],
+      "battery_exposed_or_damaged": false,
+      "item_seen": "over-ear headphones"
+    }
+  },
+  "demo_broken_earbuds.jpg": {
+    "ref": "NWA-PULSE-EB",
+    "similar": {
+      "NWA-ARC-ANC": 0.3,
+      "NWA-STUDIO-MH": 0.25
+    },
+    "damage": {
+      "summary": "cracked housing split open, exposed battery and internal wiring",
+      "damage": [
+        "cracked housing",
+        "exposed battery",
+        "exposed wiring"
+      ],
+      "battery_exposed_or_damaged": true,
+      "item_seen": "white in-ear wireless earbud"
     }
   },
   "sha256:a6492149e1fb39ef30a201c2bad339fca19ea4f0e72d113b6f45ba833a5afecd": {
@@ -18,6 +53,32 @@
     "similar": {
       "NWA-STUDIO-MH": 0.45,
       "NWA-PULSE-EB": 0.2
+    },
+    "damage": {
+      "summary": "cracked headband hinge and cracked ear cup",
+      "damage": [
+        "cracked hinge",
+        "cracked ear cup"
+      ],
+      "battery_exposed_or_damaged": false,
+      "item_seen": "over-ear headphones"
+    }
+  },
+  "sha256:9d4928f5bdc28e31787eb9a042d181806409c2494c7643ab4b9be82677cdc8fe": {
+    "ref": "NWA-PULSE-EB",
+    "similar": {
+      "NWA-ARC-ANC": 0.3,
+      "NWA-STUDIO-MH": 0.25
+    },
+    "damage": {
+      "summary": "cracked housing split open, exposed battery and internal wiring",
+      "damage": [
+        "cracked housing",
+        "exposed battery",
+        "exposed wiring"
+      ],
+      "battery_exposed_or_damaged": true,
+      "item_seen": "white in-ear wireless earbud"
     }
   }
 }

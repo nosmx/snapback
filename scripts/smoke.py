@@ -21,6 +21,7 @@ from typing import Any, Callable, Dict, List, Optional, Tuple
 import httpx
 
 API = "http://localhost:8000"
+MERCHANT = "http://localhost:8001"
 ROOT = Path(__file__).resolve().parent.parent
 LIMIT_S = 30.0
 c = httpx.Client(base_url=API, timeout=60)
@@ -92,18 +93,48 @@ def flow_g() -> str:
 
 
 def flow_a() -> str:
-    with open(ROOT / "mock" / "photos" / "demo_broken_headphones.png", "rb") as f:
-        tid = c.post("/api/photo", files={"file": ("broken_headphones.png", f, "image/png")}).json()["task_id"]
-    t = wait_task(tid)
+    """Primary photo demo: real photo of broken earbuds -> damage_assessed -> battery clause cited ->
+    in-store (battery-safe) return -> Pulse Pro ordered -> verified by email + bank."""
+    with open(ROOT / "mock" / "photos" / "demo_broken_earbuds.jpg", "rb") as f:
+        tid = c.post("/api/photo", files={"file": ("demo_broken_earbuds.jpg", f, "image/jpeg")}).json()["task_id"]
+    t = wait_task(tid, timeout=60)
     check(t["status"] == "done", f"status {t['status']}: {t.get('summary')}")
-    names = [e["step"] for e in steps(tid)]
-    for s in ("photo_identified", "order_matched", "policy_retrieved", "decision_made", "return_filed",
-              "replacement_ranked", "order_placed", "verified", "refund_received"):
+    ss = steps(tid)
+    names = [e["step"] for e in ss]
+    order = ["photo_identified", "order_matched", "damage_assessed", "policy_retrieved", "decision_made", "return_filed",
+             "reminder_added", "replacement_ranked", "order_placed", "verified", "refund_received"]
+    for s in order:
         check(s in names, f"missing step {s}")
+    check([names.index(s) for s in order] == sorted(names.index(s) for s in order), f"steps out of order: {names}")
+    by = {e["step"]: e for e in ss}
+    check(by["order_matched"]["inputs"].get("order_id") == "NWA-10388", f"matched {by['order_matched']['inputs'].get('order_id')}")
+    check(by["damage_assessed"]["inputs"]["evidence"].get("battery_damage") is True, "no battery damage in the evidence")
+    dm = by["decision_made"]
+    check(any("batter" in (x.get("section") or "").lower() and x.get("source") == "senso" for x in dm["sources"]),
+          "decision does not cite the Senso damaged-battery clause")
+    check(dm["inputs"].get("return_method") == "in_store_dropoff", f"return method {dm['inputs'].get('return_method')}")
+    rf = by["return_filed"]["inputs"]
+    check(rf.get("return_method") == "in_store_dropoff" and rf.get("reason_code") == "damaged", f"return_filed {rf}")
+    check(by["reminder_added"]["inputs"]["title"].startswith("Drop off at store"), by["reminder_added"]["inputs"]["title"])
+    check("Pulse Pro" in by["order_placed"]["decision"], by["order_placed"]["decision"])
+    rma = t["details"].get("rma")
+    mail = next((e for e in httpx.get(f"{MERCHANT}/api/inbox", timeout=10).json() if rma and rma in e.get("subject", "")), None)
+    check(mail and "In-store drop-off" in mail.get("body_text", ""), "store's confirmation email lacks the in-store method")
     check(t["decision"] == "return_and_replace", f"decision {t['decision']}")
     check(t["order"]["image_url"].startswith("http://localhost:8001/"), "order image_url not absolute")
     check(chain_ok(), "audit chain broken")
-    return t.get("outcome") or ""
+    return f"{t.get('outcome') or ''} · {by['damage_assessed']['decision']} · in-store drop-off"
+
+
+def flow_h() -> str:
+    """An unrelated photo must not be matched to an order: no_match, nothing filed."""
+    with open(ROOT / "tests" / "scenarios" / "fixtures" / "unrelated_photo.png", "rb") as f:
+        tid = c.post("/api/photo", files={"file": ("unrelated.png", f, "image/png")}).json()["task_id"]
+    t = wait_task(tid, until=("failed", "done", "awaiting_user"), timeout=30)
+    names = [e["step"] for e in steps(tid)]
+    check(t["decision"] == "no_match" and t["status"] == "failed", f"{t['status']} / {t['decision']}")
+    check("return_filed" not in names and "user_notified" not in names, f"acted anyway: {names}")
+    return "no_match · " + next(e["decision"] for e in steps(tid) if e["step"] == "order_matched")
 
 
 _b_answer: Dict[str, Any] = {}
@@ -187,10 +218,10 @@ def main() -> int:
     cal_mode = c.get("/api/demo/calendar").json().get("mode")
     c.post("/api/demo/calendar", json={"mode": "mock"})
     try:
-        for name, fn in (("g  background loop (no user input)", flow_g), ("a  photo → return + replacement", flow_a),
+        for name, fn in (("g  background loop (no user input)", flow_g), ("a  earbuds photo → in-store return", flow_a),
                          ("b  major drop → price match", flow_b), ("e  same approval answered twice", flow_e),
                          ("c  major drop → return & rebuy", flow_c), ("d  return window → return", flow_d),
-                         ("f  tamper → broken; reset → ok", flow_f)):
+                         ("f  tamper → broken; reset → ok", flow_f), ("h  unrelated photo → no_match", flow_h)):
             run(name, fn)
             n, ok, dt, detail = results[-1]
             print(f"  {'PASS' if ok else 'FAIL'}  {dt:5.1f}s  {n:36} {detail}", flush=True)

@@ -288,6 +288,7 @@ def demo_reset(stage: bool = True, wait_s: float = 19.0):
                      ("return window unworn items refund return shipping", "kestrel-outdoors"),
                      ("returns defective items return window refund", "northwind-audio")):
         warm.submit(senso.query, q, store)
+    background_loop.quiet(wait_s + 5)       # the scheduled pass must not queue ahead of the staging pass
     with background_loop.LOOP_LOCK:
         events.publish({"type": "reset", "at": clock.iso(clock.now()).replace(" ", "T")})
         out = reset_all(stage=stage)
