@@ -20,12 +20,13 @@ def main() -> None:
     mode = integration_modes()["senso"]
     print("senso mode:", mode)
     docs = []
-    for path in sorted((MOCK_DIR / "policies").glob("*.md")):
+    for doc_id, path in senso.source_docs():
         md = path.read_text()
         title = md.splitlines()[0].lstrip("# ").strip()
-        res, meta = senso.ingest(path.stem, title, md, {"store": path.stem, "type": "policy"})
-        docs.append(path.stem)
-        print(f"  {path.stem}: status={res.get('status')} ({meta['mode']}{', DEGRADED: ' + str(meta['error']) if meta['degraded'] else ''})")
+        kind = "reviews" if doc_id.startswith("reviews-") else "policy"
+        res, meta = senso.ingest(doc_id, title, md, {"store": doc_id, "type": kind})
+        docs.append(doc_id)
+        print(f"  {doc_id}: status={res.get('status')} ({meta['mode']}{', DEGRADED: ' + str(meta['error']) if meta['degraded'] else ''})")
 
     if mode == "real":
         deadline = time.time() + 180

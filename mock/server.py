@@ -106,6 +106,15 @@ def policy(request: Request, store_id: str):
     return _page(request, "policy.html", store, body=_md_to_html(path.read_text()))
 
 
+@app.get("/s/{store_id}/reviews", response_class=HTMLResponse)
+def reviews(request: Request, store_id: str):
+    store = _store(store_id)
+    path = W.MOCK / "reviews" / f"{store_id}.md"
+    if not path.exists():
+        return _error(request, store, "No review summaries", "No review summaries published for this store.", 404)
+    return _page(request, "policy.html", store, body=_md_to_html(path.read_text()))
+
+
 # ---------------- returns portal (order # + ZIP, no login) ----------------
 
 @app.get("/s/{store_id}/returns", response_class=HTMLResponse)
@@ -258,6 +267,115 @@ def checkout_submit(request: Request, store_id: str, sku: str = Form(...), ship_
         kind="order_confirmation", image=W.product_image_name(sku), meta={"order_no": order_no, "sku": sku, "price": price},
     )
     return _page(request, "checkout_confirm.html", store, purchase=purchase, item=item, already=False)
+
+
+# ---------------- support API: price adjustment, warranty, missing package ----------------
+# Form posts that return JSON (the store's support endpoints). Same order # + ZIP lookup, idempotent.
+
+def _support_dup(kind: str, key: str):
+    if not key:
+        return None
+    return next((c for c in W.merchant()[kind] if c.get("idempotency_key") == key), None)
+
+
+@app.post("/s/{store_id}/price-adjustment")
+def price_adjustment(store_id: str, order_no: str = Form(...), zip_code: str = Form(...),
+                     idempotency_key: str = Form(""), verified_by: str = Form("")):
+    store = _store(store_id)
+    dup = _support_dup("adjustments", idempotency_key)
+    if dup:
+        return {**dup, "already": True}
+    o = _find_order(store_id, order_no, zip_code)
+    if not o:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, 404)
+    rules = store["merchant_rules"]
+    if not rules["price_adjustment_days"] or not o["delivered_at"]:
+        return JSONResponse({"ok": False, "error": "price_adjustments_not_offered"}, 409)
+    until = date.fromisoformat(o["delivered_at"][:10]) + timedelta(days=rules["price_adjustment_days"])
+    if _today() > until:
+        return JSONResponse({"ok": False, "error": "price_adjustment_window_closed"}, 409)
+    current = float(W.prices().get(o["sku"], o["price"]))
+    diff = round(o["price"] - current, 2)
+    if diff <= 0:
+        return JSONResponse({"ok": False, "error": "no_price_drop", "current_price": current}, 409)
+    adj_id = f"ADJ-{store['order_prefix']}-{random.randint(10000, 99999)}"
+    rec = {"ok": True, "adjustment_id": adj_id, "order_no": o["order_no"], "sku": o["sku"], "paid": o["price"],
+           "current_price": current, "amount": diff, "created_at": W.now().isoformat(timespec="seconds"),
+           "idempotency_key": idempotency_key or None, "verified_by": verified_by or None}
+    m = W.merchant()
+    m["adjustments"].append(rec)
+    W.save_merchant(m)
+    delay = int(W.world().get("refund_delay_seconds", 10))
+    W.add_bank_txn(merchant_name=store["name"], amount=diff, memo=f"Price adjustment {adj_id} ({o['order_no']})",
+                   kind="adjustment", posts_at=W.now() + timedelta(seconds=delay), ref=adj_id)
+    W.add_inbox_email(sender=f"{store['name']} <{store['support_email']}>",
+                      subject=f"Price adjustment {adj_id} approved for order {o['order_no']}",
+                      body_text=f"We've refunded the ${diff:.2f} difference on {o['name']} (paid ${o['price']:.2f}, now ${current:.2f}) "
+                                f"to your original payment method.\nReference: {adj_id}",
+                      kind="adjustment_confirmation", meta={"adjustment_id": adj_id, "order_no": o["order_no"], "amount": diff})
+    return rec
+
+
+@app.post("/s/{store_id}/warranty")
+def warranty_claim(store_id: str, order_no: str = Form(...), zip_code: str = Form(...), description: str = Form(""),
+                   idempotency_key: str = Form(""), verified_by: str = Form("")):
+    store = _store(store_id)
+    dup = _support_dup("claims", idempotency_key)
+    if dup:
+        return {**dup, "already": True}
+    o = _find_order(store_id, order_no, zip_code)
+    if not o:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, 404)
+    until = date.fromisoformat(o["delivered_at"][:10]) + timedelta(days=store["merchant_rules"]["warranty_days"]) if o["delivered_at"] else None
+    if not until or _today() > until:
+        return JSONResponse({"ok": False, "error": "warranty_expired"}, 409)
+    claim_id = f"WAR-{store['order_prefix']}-{random.randint(10000, 99999)}"
+    rec = {"ok": True, "claim_id": claim_id, "type": "warranty", "order_no": o["order_no"], "sku": o["sku"],
+           "resolution": "replacement", "ship_by": (_today() + timedelta(days=3)).isoformat(),
+           "created_at": W.now().isoformat(timespec="seconds"), "idempotency_key": idempotency_key or None,
+           "verified_by": verified_by or None}
+    m = W.merchant()
+    m["claims"].append(rec)
+    m["orders"][o["order_no"]]["status"] = "claimed"
+    W.save_merchant(m)
+    W.add_inbox_email(sender=f"{store['name']} <{store['support_email']}>",
+                      subject=f"Warranty claim {claim_id} approved for order {o['order_no']}",
+                      body_text=f"Your warranty claim for {o['name']} is approved. A replacement ships by {rec['ship_by']}.\n"
+                                f"Claim: {claim_id}\nReported issue: {description[:200]}",
+                      kind="warranty_confirmation", meta={"claim_id": claim_id, "order_no": o["order_no"]})
+    return rec
+
+
+@app.post("/s/{store_id}/claims/missing")
+def missing_claim(store_id: str, order_no: str = Form(...), zip_code: str = Form(...),
+                  idempotency_key: str = Form(""), verified_by: str = Form("")):
+    store = _store(store_id)
+    dup = _support_dup("claims", idempotency_key)
+    if dup:
+        return {**dup, "already": True}
+    o = _find_order(store_id, order_no, zip_code)
+    if not o:
+        return JSONResponse({"ok": False, "error": "order_not_found"}, 404)
+    eta_passed = bool(o.get("eta")) and _today() > date.fromisoformat(o["eta"]) + timedelta(days=2)
+    if o["carrier_status"] not in ("lost", "exception") and not eta_passed:
+        return JSONResponse({"ok": False, "error": "package_not_missing", "carrier_status": o["carrier_status"]}, 409)
+    claim_id = f"CLM-{store['order_prefix']}-{random.randint(10000, 99999)}"
+    rec = {"ok": True, "claim_id": claim_id, "type": "missing_package", "order_no": o["order_no"], "amount": o["price"],
+           "resolution": "refund", "created_at": W.now().isoformat(timespec="seconds"),
+           "idempotency_key": idempotency_key or None, "verified_by": verified_by or None}
+    m = W.merchant()
+    m["claims"].append(rec)
+    m["orders"][o["order_no"]]["status"] = "claimed"
+    W.save_merchant(m)
+    delay = int(W.world().get("refund_delay_seconds", 10))
+    W.add_bank_txn(merchant_name=store["name"], amount=o["price"], memo=f"Refund {claim_id} lost package ({o['order_no']})",
+                   kind="claim_credit", posts_at=W.now() + timedelta(seconds=delay), ref=claim_id)
+    W.add_inbox_email(sender=f"{store['name']} <{store['support_email']}>",
+                      subject=f"Claim {claim_id}: refund for your missing package ({o['order_no']})",
+                      body_text=f"The carrier could not locate your {o['name']}. We're refunding ${o['price']:.2f} "
+                                f"to your original payment method.\nClaim: {claim_id}",
+                      kind="claim_confirmation", meta={"claim_id": claim_id, "order_no": o["order_no"], "amount": o["price"]})
+    return rec
 
 
 # ---------------- JSON APIs: prices + carrier ----------------

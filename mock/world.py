@@ -237,22 +237,35 @@ def generate_product_images(force: bool = False) -> None:
         img.save(out)
 
 
-def generate_demo_photo() -> None:
-    """Placeholder 'photo of broken headphones' for mock mode. Replace with a real photo
-    (mock/photos/demo_broken_headphones.jpg) for real SIE matching."""
-    from PIL import Image, ImageDraw
+def generate_demo_photo(force: bool = False) -> None:
+    """Placeholder 'phone photo of the broken headphones' until the team drops in a real one
+    (mock/photos/demo_broken_headphones.jpg). It is a re-photographed version of the Arc ANC
+    product card (rotated, cropped, dimmer, on a desk-colored background, with a crack), so real
+    image embeddings have something meaningful to match."""
+    import hashlib
+    from PIL import Image, ImageDraw, ImageEnhance, ImageFilter
     PHOTOS.mkdir(parents=True, exist_ok=True)
     out = PHOTOS / "demo_broken_headphones.png"
-    if not out.exists():
-        img = Image.new("RGB", (640, 640), (214, 210, 204))
-        d = ImageDraw.Draw(img)
-        _glyph(d, "headphones", (58, 58, 64), cx=330, cy=300, crack=True)
-        img.save(out)
-    # Sidecar label used ONLY by the mock embedder (honestly labeled as mock in the audit log).
-    _write(PHOTOS / "labels.json", {
-        "demo_broken_headphones.png": {"ref": "NWA-ARC-ANC", "similar": {"NWA-STUDIO-MH": 0.45, "NWA-PULSE-EB": 0.2}},
-        "demo_broken_headphones.jpg": {"ref": "NWA-ARC-ANC", "similar": {"NWA-STUDIO-MH": 0.45, "NWA-PULSE-EB": 0.2}},
-    })
+    card_path = PRODUCTS / "nwa-arc-anc.png"
+    if (force or not out.exists()) and card_path.exists():
+        card = Image.open(card_path).convert("RGB")
+        d = ImageDraw.Draw(card)
+        d.line([(250, 120), (285, 175), (262, 215), (300, 270)], fill=(150, 25, 25), width=10)  # crack on the band
+        d.line([(455, 300), (470, 345), (450, 380)], fill=(150, 25, 25), width=7)               # cracked ear cup
+        shot = card.rotate(-9, resample=Image.BICUBIC, expand=True, fillcolor=(176, 160, 138))
+        w, h = shot.size
+        shot = shot.crop((int(w * 0.07), int(h * 0.05), int(w * 0.95), int(h * 0.93))).resize((640, 640))
+        shot = ImageEnhance.Brightness(shot).enhance(0.86)
+        shot = ImageEnhance.Contrast(shot).enhance(0.92).filter(ImageFilter.GaussianBlur(0.8))
+        shot.save(out)
+    # Sidecar labels used ONLY by the mock embedder (labeled mock in the audit log), keyed by file
+    # name and by content hash because uploads are renamed.
+    label = {"ref": "NWA-ARC-ANC", "similar": {"NWA-STUDIO-MH": 0.45, "NWA-PULSE-EB": 0.2}}
+    labels = {"demo_broken_headphones.png": label, "demo_broken_headphones.jpg": label}
+    for p in (out, PHOTOS / "demo_broken_headphones.jpg"):
+        if p.exists():
+            labels["sha256:" + hashlib.sha256(p.read_bytes()).hexdigest()] = label
+    _write(PHOTOS / "labels.json", labels)
 
 
 # ---------- email rendering ----------

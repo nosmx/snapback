@@ -12,5 +12,12 @@
       "NWA-STUDIO-MH": 0.45,
       "NWA-PULSE-EB": 0.2
     }
+  },
+  "sha256:a6492149e1fb39ef30a201c2bad339fca19ea4f0e72d113b6f45ba833a5afecd": {
+    "ref": "NWA-ARC-ANC",
+    "similar": {
+      "NWA-STUDIO-MH": 0.45,
+      "NWA-PULSE-EB": 0.2
+    }
   }
 }

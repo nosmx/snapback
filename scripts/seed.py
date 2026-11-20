@@ -57,6 +57,32 @@ def seed_mandate() -> str:
     return inq["inquiry_id"]
 
 
+# Cache of real SIE results keyed by (model, input) so demo resets take seconds, not ~50 s.
+# Only real, non-degraded results are cached; inputs are identical between resets.
+_CACHE_FILE = ROOT / "data" / "sie_cache.json"
+_cache: Optional[Dict[str, Any]] = None
+
+
+def _cached(kind: str, material: bytes, fn):
+    import hashlib
+    global _cache
+    if _cache is None:
+        try:
+            _cache = json.loads(_CACHE_FILE.read_text())
+        except (FileNotFoundError, ValueError):
+            _cache = {}
+    key = f"{kind}:{sie.model_name(kind)}:{integration_modes()['sie']}:" + hashlib.sha256(material).hexdigest()
+    if key in _cache:
+        res, meta = _cache[key]
+        return res, {**meta, "latency_ms": 0, "cached": True}
+    res, meta = fn()
+    if meta["mode"] == "real" and not meta["degraded"]:
+        _cache[key] = [res, meta]
+        _CACHE_FILE.parent.mkdir(parents=True, exist_ok=True)
+        _CACHE_FILE.write_text(json.dumps(_cache))
+    return res, meta
+
+
 def ingest_emails() -> int:
     stores_by_name = {s["name"]: s["id"] for s in W.stores().values()}
     n = 0
@@ -65,10 +91,10 @@ def ingest_emails() -> int:
         if email.get("kind") != "order":
             continue
         clean, flags = detect_injection(email["body_text"])
-        ext, emeta = sie.extract(clean, email["from"])
+        ext, emeta = _cached("extract", (clean + "|" + email["from"]).encode(), lambda: sie.extract(clean, email["from"]))
         f = ext["fields"]
         img_path = MOCK_DIR / "static" / "products" / email["image"] if email.get("image") else None
-        vec, imeta = sie.embed_image(str(img_path)) if img_path else (None, None)
+        vec, imeta = _cached("image", img_path.read_bytes(), lambda: sie.embed_image(str(img_path))) if img_path else (None, None)
         order_id = f.get("order_no") or f"unknown-{email['email_id']}"
         store = stores_by_name.get(f.get("merchant") or "", None)
         delivered = _date(f.get("delivered_on"))
@@ -105,27 +131,43 @@ def ingest_emails() -> int:
 def seed_catalog() -> int:
     for item in W.catalog().values():
         text = f"{item['name']}. {item['description']} Category: {item['category']}. Specs: {json.dumps(item['specs'])}"
-        vec, _ = sie.embed_text(text)
+        vec, _ = _cached("text", text.encode(), lambda: sie.embed_text(text))
         db().upsert("catalog", {"sku": item["sku"], "store": item["store"], "name": item["name"],
                                 "price": item["price"], "rating": item["rating"], "in_stock": item["in_stock"],
-                                "specs": item["specs"], "text_embedding": vec})
+                                "specs": {**item["specs"], "category": item["category"]}, "text_embedding": vec})
     return len(W.catalog())
+
+
+def reset_all(stage: bool = True, verbose: bool = False, drop: bool = False) -> Dict[str, Any]:
+    """Reset the mock world and re-seed the database. Used by `make reset` and POST /api/demo/reset."""
+    import shutil
+    out: Dict[str, Any] = {"integration_modes": integration_modes()}
+    out["world"] = W.reset_world(stage_demo=stage, refund_delay_seconds=settings.refund_delay_seconds)
+    for sub in ("uploads", "reminders"):
+        shutil.rmtree(ROOT / "data" / sub, ignore_errors=True)
+    d = db()
+    out["db_backend"] = d.backend
+    d.init_schema(drop=drop)   # CREATE IF NOT EXISTS (drop only when the schema/dims changed)
+    if not drop:
+        from backend.integrations.singlestore import COLUMNS
+        for t in COLUMNS:          # clearing rows is much faster than DDL on SingleStore
+            d.execute(f"DELETE FROM {t}")
+    out["mandate_inquiry"] = seed_mandate()
+    out["orders"] = ingest_emails()
+    out["catalog"] = seed_catalog()
+    out["audit_chain"] = audit.verify_chain()
+    if verbose:
+        for k, v in out.items():
+            print(f"{k}: {v}")
+    return out
 
 
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--no-stage", action="store_true", help="skip demo staging (price drops, lost package)")
+    ap.add_argument("--drop", action="store_true", help="drop and recreate tables (after schema or vector-dim changes)")
     args = ap.parse_args()
-
-    print("integration modes:", integration_modes())
-    print("world:", W.reset_world(stage_demo=not args.no_stage, refund_delay_seconds=settings.refund_delay_seconds))
-    d = db()
-    print("db backend:", d.backend, getattr(d, "fallback_reason", ""))
-    d.init_schema(drop=True)
-    print("mandate verified:", seed_mandate())
-    print("orders ingested:", ingest_emails())
-    print("catalog items:", seed_catalog())
-    print("audit chain:", audit.verify_chain())
+    reset_all(stage=not args.no_stage, verbose=True, drop=args.drop)
 
 
 if __name__ == "__main__":

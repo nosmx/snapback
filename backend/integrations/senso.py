@@ -25,10 +25,18 @@ def _slug(text: str) -> str:
     return re.sub(r"[^a-z0-9]+", "-", text.lower()).strip("-")
 
 
+REVIEWS_DIR = MOCK_DIR / "reviews"
+
+
+def source_docs() -> List[Tuple[str, Any]]:
+    """(doc_id, path): store policies keyed by store slug, review summaries as reviews-<store>."""
+    return ([(p.stem, p) for p in sorted(POLICY_DIR.glob("*.md"))] +
+            [(f"reviews-{p.stem}", p) for p in sorted(REVIEWS_DIR.glob("*.md"))])
+
+
 def _sections() -> List[Dict[str, Any]]:
     out = []
-    for path in sorted(POLICY_DIR.glob("*.md")):
-        store = path.stem
+    for store, path in source_docs():
         title, current, buf = "", None, []
         for line in path.read_text().splitlines():
             if line.startswith("# "):
@@ -44,10 +52,18 @@ def _sections() -> List[Dict[str, Any]]:
     return out
 
 
+def doc_url(doc_id: Optional[str], section: str) -> Optional[str]:
+    if not doc_id:
+        return None
+    if doc_id.startswith("reviews-"):
+        return f"{settings.merchant_base_url}/s/{doc_id[len('reviews-'):]}/reviews#{_slug(section)}"
+    return f"{settings.merchant_base_url}/s/{doc_id}/policy#{_slug(section)}"
+
+
 def _citation(sec: Dict[str, Any], source: str) -> Dict[str, Any]:
     return {
         "doc": sec["doc"], "store": sec["store"], "section": sec["section"],
-        "url": f"{settings.merchant_base_url}/s/{sec['store']}/policy#{_slug(sec['section'])}",
+        "url": doc_url(sec["store"], sec["section"]),
         "retrieved_at": clock.iso(clock.now()), "quote": sec["text"][:600], "source": source,
     }
 
@@ -170,7 +186,7 @@ def _real_query(question: str, store: Optional[str], k: int) -> Dict[str, Any]:
         section, quote, overlap = _best_section(chunk_text, ch.get("chunk_index", 0), question)
         citations.append({
             "doc": ch.get("title") or entry.get("title"), "store": sid, "section": section,
-            "url": f"{settings.merchant_base_url}/s/{sid}/policy#{_slug(section)}" if sid else None,
+            "url": doc_url(sid, section),
             "retrieved_at": clock.iso(clock.now()), "quote": quote[:800], "chunk_text": chunk_text,
             "source": "senso", "senso_kb_node_id": ch.get("kb_node_id"), "senso_content_id": ch.get("content_id"),
             "chunk_index": ch.get("chunk_index"), "score": ch.get("score"), "_overlap": overlap,

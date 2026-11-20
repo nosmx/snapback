@@ -38,8 +38,9 @@ def _mock_embed_image(path: str) -> List[float]:
     dim = settings.image_embed_dim
     p = Path(path)
     labels = json.loads(LABELS_FILE.read_text()) if LABELS_FILE.exists() else {}
-    if p.name in labels:
-        lab = labels[p.name]
+    digest = "sha256:" + hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else ""
+    if p.name in labels or digest in labels:
+        lab = labels.get(digest) or labels[p.name]
         v = _seeded_vec("img:" + lab["ref"], dim)
         for ref, w in (lab.get("similar") or {}).items():
             v = v + w * _seeded_vec("img:" + ref, dim)
