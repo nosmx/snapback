@@ -1,7 +1,112 @@
-{% extends "base.html" %}{% block title %}{{ email.subject }}{% endblock %}{% block body %}
-<div class="card" data-testid="email">
-<div class="muted">From: {{ email["from"] }}<br>To: {{ email.to }}<br>Date: {{ email.received_at|replace("T"," ") }}</div>
-<h2>{{ email.subject }}</h2>
-{% if email.image_url %}<img class="thumb" style="width:220px" src="{{ email.image_url }}" alt="">{% endif %}
-<pre>{{ email.body_text }}</pre></div>
+{% extends "base.html" %}
+{% block title %}{{ email.subject }}{% endblock %}
+{% block fonts %}<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Jost:wght@300;400;500&family=Fraunces:ital,opsz,wght@0,9..144,500;1,9..144,500&family=DM+Sans:wght@400;500&family=Barlow+Condensed:wght@600;800&display=swap">{% endblock %}
+{% block body %}
+{% set BR = {"Northwind Audio": ("northwind-audio", "nwa", "#0e0f11"), "Juniper Home": ("juniper-home", "jnh", "#2f5d46"),
+  "Kestrel Outdoors": ("kestrel-outdoors", "kso", "#d4622a"), "Larkspur Supply Co.": ("larkspur-supply", "lsc", "#4b3f72")} %}
+{% set KNOWN = ["Order #", "Order date", "Item", "Qty", "Price", "Order total", "Ship to", "Carrier tracking", "Return by", "Returns",
+  "Estimated delivery", "Return authorization", "Refund amount", "Restocking fee", "Print your label", "Reference", "Claim",
+  "Reported issue", "Start a return or check your order"] %}
+{% set sender = email["from"].split(" <")[0] %}
+{% set b = BR.get(sender) %}
+{% set F = {} %}{% set P = [] %}
+{% for line in email.body_text.split("\n") %}
+  {% set kv = line.split(": ", 1) %}
+  {% if kv|length == 2 and kv[0] in KNOWN %}{% set _ = F.update({kv[0]: kv[1]}) %}
+  {% elif line and line != "Order summary" and not ("@" in line and " · " in line) %}{% set _ = P.append(line) %}{% endif %}
+{% endfor %}
+{% set subj = email.subject %}
+{% set kind = email.kind %}
+{% set delivered = subj.startswith("Delivered") %}
+{% set shipped = subj.startswith("Shipped") %}
+{% set HEAD = {"order_confirmation": "Thanks for your order!", "return_confirmation": "Your return is approved",
+  "adjustment_confirmation": "We refunded the price difference", "warranty_confirmation": "Your warranty claim is approved",
+  "claim_confirmation": "We're refunding your missing package", "cancel_confirmation": "Your order was cancelled"} %}
+{% set headline = "Your order has arrived" if delivered else ("Your order is on its way" if shipped else HEAD.get(kind, subj)) %}
+{% set order_no = F.get("Order #") or email.meta.get("order_no") %}
+{% set ship = F.get("Ship to", "") %}
+{% set zip = ship.split(" ")[-1] if ship and ship.split(" ")[-1].isdigit() else "" %}
+{% set item = F.get("Item", "") %}
+{% set item_name = item.split(" (SKU")[0] %}
+{% set item_sku = item.split("(SKU ")[1][:-1] if "(SKU " in item else "" %}
+{% set is_order = kind in ("order", "order_confirmation") %}
+
+<div class="page"><div class="wrap">
+  <div class="mail">
+    {% include "_mail_side.html" %}
+    <section data-testid="email">
+      <div class="mail-head"><a href="/inbox" class="muted" style="text-decoration:none">← Back to inbox</a><span class="muted">{{ email.email_id }}</span></div>
+      <div class="mail-view">
+        <h1 class="subject">{{ email.subject }}</h1>
+        <div class="hdr">
+          <span class="mail-list"><span class="av" style="background:{{ b[2] if b else '#8a8a8e' }};display:grid">{{ sender[:1] }}</span></span>
+          <div class="who"><b>{{ sender }}</b><span>From: {{ email["from"] }} · To: {{ email.to }}</span></div>
+          <div class="date">{{ email.received_at|replace("T", " ") }}</div>
+        </div>
+
+        <div class="em em-{{ b[1] if b else 'lsc' }}">
+          <div class="em-top">
+            {%- if b and b[0] == "northwind-audio" -%}<span class="wordmark wm-northwind" style="color:#ecebe7"><span class="wm-main">NORTHWIND</span><span class="wm-sub">AUDIO</span></span>
+            {%- elif b and b[0] == "juniper-home" -%}<span class="wordmark wm-juniper" style="color:#2f5d46">juniper<span class="wm-sub">home</span></span>
+            {%- elif b and b[0] == "kestrel-outdoors" -%}<span class="wordmark wm-kestrel"><svg class="mark" viewBox="0 0 64 64"><path d="M4 50l18-26 9 11 9-16 20 31z" fill="#f2efe6"/><path d="M31 35l9-16 6 9-7-2z" fill="#d4622a"/></svg><span class="wm-main">Kestrel</span><span class="wm-sub">Outdoors</span></span>
+            {%- else -%}<span class="wordmark wm-larkspur" style="color:#4b3f72"><em>{{ sender }}</em></span>{%- endif -%}
+          </div>
+          {% if b %}<div class="em-band">Free standard shipping · Easy online returns</div>{% endif %}
+          <div class="em-body">
+            <h1>{{ headline }}</h1>
+            {% if is_order %}
+            <div class="em-progress">
+              <div class="on">Ordered</div><div class="{{ 'on' if shipped or delivered }}">Shipped</div>
+              <div class="{{ 'on' if delivered }}">Out for delivery</div><div class="{{ 'on' if delivered }}">Delivered</div>
+            </div>
+            {% endif %}
+            <div style="margin-top:18px">
+              {% for line in P %}<p>{{ line }}</p>{% endfor %}
+            </div>
+
+            {% if item or email.image_url %}
+            <div class="em-item">
+              {% if email.image_url %}<img src="{{ email.image_url }}" alt="{{ item_name }}">{% else %}<span></span>{% endif %}
+              <div><div class="nm">{{ item_name or "Your item" }}</div>
+                {% if item_sku %}<div class="sm">SKU {{ item_sku }}</div>{% endif %}
+                {% if F.get("Qty") %}<div class="sm">Qty {{ F.get("Qty") }}</div>{% endif %}</div>
+              <div style="font-weight:600">{{ F.get("Price", "") }}</div>
+            </div>
+            {% endif %}
+
+            {% if is_order and b %}
+            <div class="em-btns">
+              <a class="em-btn" href="/s/{{ b[0] }}/returns?order_no={{ order_no }}">Manage order</a>
+              <a class="em-btn alt" href="/s/{{ b[0] }}/returns?order_no={{ order_no }}{% if zip %}&zip_code={{ zip }}{% endif %}">Start a return</a>
+            </div>
+            {% elif F.get("Print your label") %}
+            <div class="em-btns"><a class="em-btn" href="{{ F.get('Print your label') }}">Print return label</a>
+              {% if b %}<a class="em-btn alt" href="/s/{{ b[0] }}">Visit {{ sender }}</a>{% endif %}</div>
+            {% elif b %}
+            <div class="em-btns"><a class="em-btn" href="/s/{{ b[0] }}">Visit {{ sender }}</a></div>
+            {% endif %}
+
+            {% set rows = [] %}
+            {% for k in ["Order #", "Order date", "Return authorization", "Claim", "Reference", "Ship to", "Carrier tracking", "Estimated delivery", "Return by", "Returns", "Restocking fee", "Reported issue"] %}
+              {% if F.get(k) %}{% set _ = rows.append((k, F.get(k))) %}{% endif %}{% endfor %}
+            {% if rows or F.get("Order total") or F.get("Refund amount") %}
+            <table class="em-sum">
+              {% for k, v in rows %}<tr><td>{{ "Order number" if k == "Order #" else k }}</td><td>{{ v }}</td></tr>{% endfor %}
+              {% if F.get("Order total") %}<tr class="t"><td>Order total</td><td>{{ F.get("Order total") }}</td></tr>{% endif %}
+              {% if F.get("Refund amount") %}<tr class="t"><td>Refund</td><td>{{ F.get("Refund amount") }}</td></tr>{% endif %}
+            </table>
+            {% endif %}
+          </div>
+          <div class="em-foot">
+            {% if b %}<p style="margin:0 0 6px"><a href="/s/{{ b[0] }}/returns">Returns</a> · {% if b[0] != "larkspur-supply" %}<a href="/s/{{ b[0] }}/policy">Help center</a> · {% endif %}<a href="/s/{{ b[0] }}">Shop</a></p>{% endif %}
+            <p style="margin:0">{{ email["from"].split("<")[-1].rstrip(">") }} · You received this email because you placed an order.</p>
+            <p style="margin:6px 0 0;font-size:11px">Demo store email in the Snapback environment. Not from a real retailer.</p>
+          </div>
+        </div>
+
+        <details class="raw"><summary>Plain-text version (as received)</summary><pre>{{ email.body_text }}</pre></details>
+      </div>
+    </section>
+  </div>
+</div></div>
 {% endblock %}

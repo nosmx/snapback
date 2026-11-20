@@ -1,1 +1,31 @@
-{% extends "base.html" %}{% block body %}<div class="card">{{ body|safe }}</div>{% endblock %}
+{% extends "base.html" %}
+{% block title %}{{ "Review summaries" if request.url.path.endswith("/reviews") else "Returns & warranty policy" }} · {{ store.name }}{% endblock %}
+{% block body %}
+{% set is_reviews = request.url.path.endswith("/reviews") %}
+<div class="page"><div class="wrap">
+  <nav class="crumbs"><a href="/s/{{ store.id }}">Home</a><span>/</span><a href="/s/{{ store.id }}/policy">Help center</a><span>/</span><span>{{ "Review summaries" if is_reviews else "Returns & warranty" }}</span></nav>
+  <div class="article">
+    <aside class="toc" id="toc"><div class="eyebrow">On this page</div></aside>
+    <article class="prose" id="doc">
+      {{ body|safe }}
+      <div class="panel" style="margin-top:44px;box-shadow:none">
+        <h3 style="margin-bottom:6px">Ready to send something back?</h3>
+        <p class="muted" style="margin-bottom:16px">Start a return with your order number and shipping ZIP code. No account needed.</p>
+        <a class="btn" href="/s/{{ store.id }}/returns">Start a return</a>
+      </div>
+    </article>
+  </div>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var toc = document.getElementById('toc');
+  document.querySelectorAll('#doc h2[id]').forEach(function (h) {
+    var a = document.createElement('a'); a.href = '#' + h.id; a.textContent = h.textContent; toc.appendChild(a);
+  });
+  function mark() { toc.querySelectorAll('a').forEach(function (a) { a.classList.toggle('on', a.getAttribute('href') === location.hash); }); }
+  window.addEventListener('hashchange', mark); mark();
+})();
+</script>
+{% endblock %}

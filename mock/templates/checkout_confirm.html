@@ -1,10 +1,42 @@
-{% extends "base.html" %}{% block body %}
-<div class="card" data-testid="order-confirmation">
-<h2 class="ok">{% if already %}Order already placed{% else %}Order placed{% endif %}</h2>
-<table>
-<tr><th>Order number</th><td data-testid="new-order-no">{{ purchase.order_no }}</td></tr>
-<tr><th>Item</th><td>{{ item.name }} ({{ purchase.sku }})</td></tr>
-<tr><th>Charged</th><td data-testid="charged">${{ "%.2f"|format(purchase.price) }}</td></tr>
-<tr><th>Ship to ZIP</th><td>{{ purchase.ship_zip }}</td></tr>
-</table></div>
+{% extends "base.html" %}
+{% block title %}Order {{ purchase.order_no }} · {{ store.name }}{% endblock %}
+{% block body %}
+<div class="page"><div class="wrap narrow" style="max-width:880px">
+<div data-testid="order-confirmation">
+  <div class="confirm-hero">
+    <div class="tick"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+    <span class="eyebrow">{% if already %}Order already placed{% else %}Order placed{% endif %}</span>
+    <h1>{% if already %}We already have this order{% else %}Thank you, Alex!{% endif %}</h1>
+    <p class="muted" style="font-size:15px">A confirmation email is on its way to alex.moreno@mail.example.</p>
+    <div class="ref">Order number <b data-testid="new-order-no">{{ purchase.order_no }}</b></div>
+  </div>
+
+  <div class="two-col even">
+    <div class="panel">
+      <h3>Order details</h3>
+      <div class="item-row" style="grid-template-columns:72px 1fr;border:0;padding:6px 0 14px;background:transparent">
+        <img src="/static/products/{{ item.sku|lower }}.png" alt="" style="width:72px;height:72px">
+        <div><div class="nm">{{ item.name }}</div><div class="muted">SKU {{ purchase.sku }} · Qty 1</div></div>
+      </div>
+      <table class="kv">
+        <tr><th>Charged</th><td data-testid="charged">${{ "%.2f"|format(purchase.price) }}</td></tr>
+        <tr><th>Payment</th><td>Demo card •••• 4242</td></tr>
+        <tr><th>Ship to ZIP</th><td>{{ purchase.ship_zip }}</td></tr>
+        <tr><th>Placed</th><td>{{ purchase.created_at|replace("T", " ") }} UTC</td></tr>
+      </table>
+    </div>
+    <div class="panel">
+      <h3>What happens next</h3>
+      <ol class="timeline">
+        <li class="done"><div><b>Order confirmed</b><span>We've received your order.</span></div></li>
+        <li><div><b>Preparing to ship</b><span>Usually within 1–2 business days.</span></div></li>
+        <li><div><b>Shipped</b><span>You'll get a tracking number by email.</span></div></li>
+        <li><div><b>Delivered</b><span>Standard shipping, 3–5 business days.</span></div></li>
+      </ol>
+      <p class="hint" style="margin-top:20px">Changed your mind? Returns are accepted within {{ store.merchant_rules.return_window_days }} days of delivery.</p>
+      <a class="btn secondary small" href="/s/{{ store.id }}">Continue shopping</a>
+    </div>
+  </div>
+</div>
+</div></div>
 {% endblock %}

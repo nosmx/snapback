@@ -1,10 +1,250 @@
-{% extends "base.html" %}{% block body %}
-<div class="grid">{% for i in items %}
-<div class="card" data-testid="product-{{ i.sku }}">
-  <img src="/static/products/{{ i.image }}" alt="{{ i.name }}">
-  <div><strong>{{ i.name }}</strong></div>
-  <div>${{ "%.2f"|format(i.current_price) }}{% if i.current_price < i.price %} <s class="muted">${{ "%.2f"|format(i.price) }}</s>{% endif %}</div>
-  <div class="muted">★ {{ i.rating }} ({{ i.review_count }} reviews){% if not i.in_stock %} · Out of stock{% endif %}</div>
-  <a class="btn" href="/s/{{ store.id }}/checkout?sku={{ i.sku }}" data-testid="buy-{{ i.sku }}">Buy</a>
-</div>{% endfor %}</div>
+{% extends "base.html" %}
+{% block title %}{{ store.name }}: {{ store.tagline }}{% endblock %}
+{% block body %}
+{% set r = store.merchant_rules %}
+{% set CAT = {"headphones": "Headphones", "earbuds": "Earbuds", "speakers": "Speakers", "accessories": "Accessories",
+  "blender": "Blenders", "kettle": "Kettles", "toaster": "Toasters", "textiles": "Textiles", "cookware": "Cookware",
+  "jacket": "Rain shells", "bottle": "Hydration", "tent": "Tents", "apparel": "Apparel", "lamp": "Lighting"} %}
+{% set COLOR = {
+  "NWA-ARC-ANC": ("Graphite", "#3b3e44"), "NWA-ARC-ANC2": ("Graphite", "#43464c"), "NWA-ARC-ANC-PRO": ("Onyx & Brass", "#1c1d20"),
+  "NWA-HALO-OE": ("Sand", "#d9d2c5"), "NWA-STUDIO-MH": ("Black", "#18191b"), "NWA-PULSE-EB": ("Ivory", "#ecebe7"),
+  "NWA-SHELF-SPK": ("Walnut", "#6b4a33"), "NWA-DAC-USBC": ("Aluminum", "#b9bcc0"),
+  "JNH-VORTEX-BL": ("Sage", "#8aa18c"), "JNH-VORTEX-PRO": ("Charcoal & Copper", "#3b3d3f"), "JNH-POUR-KTL": ("Cream & Walnut", "#e9e4da"),
+  "JNH-CER-TST2": ("Sage", "#a9bfaa"), "JNH-CER-TST4": ("Oat", "#e3d6c2"), "JNH-LINEN-THR": ("Oat", "#c2b298"), "JNH-CI-SKLT": ("Black", "#1e1f20"),
+  "KSO-RIDGE-JKT": ("Spruce", "#3b5440"), "KSO-RIDGE-LITE": ("Ember", "#b8642f"), "KSO-TRAIL-BTL": ("Sage", "#7e9277"),
+  "KSO-BASECAMP-2P": ("Olive", "#4a5233"), "KSO-MERINO-BN": ("Rust", "#9a5b34"), "LSC-DESK-LAMP": ("Brass", "#b08d57")} %}
+{% set ALT = {"northwind-audio": [("Silver", "#c3c6cb"), ("Midnight", "#1f2a3a")],
+  "juniper-home": [("Oat", "#e3d6c2"), ("Charcoal", "#3b3d3f"), ("Sage", "#a9bfaa")],
+  "kestrel-outdoors": [("Slate", "#4a5257"), ("Sand", "#c9b48a")], "larkspur-supply": [("Black", "#222222")]} %}
+{% set SPEC = {"type": "Type", "anc": "Active noise cancelling", "battery_h": "Battery life (hours)", "color": "Color", "hinge": "Hinge",
+  "lossless": "Lossless wired mode", "wired": "Wired", "impedance_ohm": "Impedance (Ω)", "driver_in": "Driver (in)", "bluetooth": "Bluetooth",
+  "bits": "Bit depth", "khz": "Sample rate (kHz)", "watts": "Motor (W)", "jar_l": "Jar capacity (L)", "liters": "Capacity (L)",
+  "variable_temp": "Variable temperature", "slots": "Slots", "material": "Material", "size_in": "Size (in)", "diameter_in": "Diameter (in)",
+  "preseasoned": "Pre-seasoned", "waterproof_mm": "Waterproof rating (mm)", "size": "Size", "insulated": "Insulated", "people": "Sleeps",
+  "weight_kg": "Weight (kg)", "bulb": "Bulb"} %}
+{% set REV = {
+  "NWA-ARC-ANC": [(2, "Great sound, hinge cracked", "Noise cancelling is excellent, but the left hinge cracked after about ten weeks of normal use.", "Priya S.", "2 weeks ago"),
+                  (4, "Love the ANC", "Comfortable on long flights and the battery lasts all week. Handle the hinge gently.", "Marcus T.", "1 month ago"),
+                  (1, "Second pair, same crack", "My replacement failed at the same joint. Hoping the newer model fixes it.", "Dana K.", "3 months ago")],
+  "NWA-ARC-ANC2": [(5, "The hinge is finally solid", "Metal hinge feels like a different product. Forty-hour battery is real.", "Jonah R.", "1 week ago"),
+                   (5, "Upgrade from the original Arc", "Same great sound, better ANC, and none of the creaking.", "Elena V.", "3 weeks ago")],
+  "headphones": [(5, "Detailed, never fatiguing", "Balanced tuning and very comfortable for long sessions.", "Sam W.", "2 weeks ago"),
+                 (4, "Premium feel", "Build quality is excellent. Case could be smaller.", "Ines M.", "1 month ago")],
+  "earbuds": [(4, "Tiny case, big sound", "Fit is secure and the ANC is better than expected for earbuds.", "Leo P.", "3 weeks ago"),
+              (5, "Daily drivers", "Wireless charging and the battery easily covers my commute.", "Hana O.", "2 months ago")],
+  "speakers": [(5, "Fills the room", "Warm, punchy and the optical input made TV setup painless.", "Chris D.", "1 month ago"),
+               (4, "Beautiful walnut", "Look great on the shelf. Wish the remote were included.", "Ana L.", "2 months ago")],
+  "accessories": [(5, "Night and day", "Cleaner sound from my phone with zero hiss.", "Tom B.", "2 weeks ago"),
+                  (4, "Small and solid", "Aluminum body feels premium. Gets slightly warm.", "Yuki N.", "1 month ago")],
+  "blender": [(5, "Smoothies in seconds", "Crushes ice without fuss and the presets are genuinely useful.", "Maya G.", "1 week ago"),
+              (4, "Powerful, a little loud", "Strong motor and an easy-clean jar. Loud on high.", "Owen F.", "1 month ago")],
+  "kettle": [(5, "Pour-over perfection", "Precise temperature and a beautifully controlled pour.", "Rina A.", "2 weeks ago"),
+             (5, "Counter jewelry", "Heats fast and looks lovely next to the grinder.", "Ben C.", "1 month ago")],
+  "toaster": [(4, "Even browning", "Toasts evenly edge to edge. The ceramic finish wipes clean.", "Lucia H.", "3 weeks ago"),
+              (4, "Pretty and practical", "Bagel mode works well. Crumb tray could be deeper.", "Noah J.", "2 months ago")],
+  "textiles": [(5, "Softer every wash", "Stonewashed linen that gets better each time.", "Zoe E.", "1 month ago"),
+               (5, "Perfect weight", "Light enough for summer evenings, cozy in fall.", "Aiden Q.", "2 months ago")],
+  "cookware": [(5, "Heirloom quality", "Seasoning was great out of the box. Perfect sear.", "Grace Y.", "2 weeks ago"),
+               (5, "Better than my old one", "Heavy, even heat, and the helper handle is a lifesaver.", "Felix U.", "1 month ago")],
+  "jacket": [(5, "Bone dry in a downpour", "Hiked four hours in steady rain without wetting out. Pit zips are clutch.", "Kai M.", "1 week ago"),
+             (4, "Runs slightly large", "Great shell. Size down if you're between sizes.", "Rosa I.", "1 month ago")],
+  "bottle": [(5, "Ice for 24 hours", "Left it in a hot car, still had ice the next day.", "Eli Z.", "2 weeks ago"),
+             (4, "Tough finish", "Survived a few drops with barely a scratch.", "Mina S.", "1 month ago")],
+  "tent": [(5, "Pitches in five minutes", "Freestanding and roomy for two with gear. Handled wind well.", "Jules R.", "3 weeks ago"),
+           (4, "Light enough", "Easy to carry on overnights. Vestibule is a touch small.", "Theo W.", "2 months ago")],
+  "apparel": [(5, "Warm, not itchy", "Merino that actually breathes on the climb.", "Ivy C.", "1 week ago"),
+              (5, "Lives in my pack", "Packs small and keeps its shape.", "Omar K.", "1 month ago")],
+  "lamp": [(4, "Lovely brass", "Warm light, sturdy base.", "Nell P.", "1 month ago")]} %}
+{% set HERO = {
+  "northwind-audio": ("NWA-ARC-ANC-PRO", "New · Arc ANC Pro", "Silence, tuned.", "Adaptive noise cancelling, a lossless wired mode and 45 hours of listening. Engineered in-house and tested for years of daily use.", "headphones", "Shop headphones", "nwa"),
+  "juniper-home": ("JNH-POUR-KTL", "The kitchen edit", "Slow mornings, <em>made simple.</em>", "Pour-over kettles, ceramic toasters and blenders that earn their counter space.", "kettle", "Shop the kitchen", "jnh"),
+  "kestrel-outdoors": ("KSO-RIDGE-JKT", "Fall '26 · Shell season", "Built for the long way around.", "Three-layer shells, freestanding tents and gear backed by a lifetime guarantee.", "jacket", "Shop rain shells", "kso"),
+  "larkspur-supply": ("LSC-DESK-LAMP", "Small-batch desk goods", "Light for long evenings.", "Made in short runs, finished by hand.", "lamp", "Shop lighting", "lsc")} %}
+{% set STORY = {
+  "northwind-audio": ("NWA-ARC-ANC2", "Engineering notes", "Why Arc ANC 2 has a metal hinge", "Owners told us which part failed first, so the second-generation Arc replaces the original plastic hinge with a reinforced metal one. Same tuning, better noise cancelling, 40 hours of battery.", "#p-NWA-ARC-ANC2", "Shop Arc ANC 2"),
+  "juniper-home": ("JNH-CI-SKLT", "Care guide", "Season it once, keep it forever", "Our pre-seasoned cast iron gets better with every use. Everything we sell is covered by a two-year warranty, and returns start online in under a minute.", "#c-cookware", "Shop cookware"),
+  "kestrel-outdoors": ("KSO-BASECAMP-2P", "The Kestrel guarantee", "If it fails, we fix it. For life.", "Every piece we make is guaranteed against defects in materials and workmanship for its lifetime. Start a return or a claim online with just your order number and ZIP code.", "/s/kestrel-outdoors/returns", "Start a return or claim")} %}
+{% set h = HERO.get(store.id) %}
+{% set hero_item = (items|selectattr("sku", "equalto", h[0])|first) if h else none %}
+{% set hero_item = hero_item or items[0] %}
+{% set cats = items|map(attribute="category")|unique|list %}
+
+<div class="home">
+  {% if h and h[6] == "kso" %}
+  <section class="hero hero-kso" style="isolation:isolate">
+    <img class="landscape" src="/static/img/kestrel-hero.jpg" alt="Ridgelines at dusk" style="object-fit:cover">
+    <div class="wrap">
+      <span class="eyebrow">{{ h[1] }}</span>
+      <h1>{{ h[2]|safe }}</h1>
+      <p class="lead">{{ h[3] }}</p>
+      <div class="ctas"><a class="btn lg" style="background:var(--accent-2);border-color:var(--accent-2);color:#fff" href="#c-{{ h[4] }}">{{ h[5] }}</a><a class="btn lg ghost" href="#p-{{ hero_item.sku }}">Explore the Ridge</a></div>
+    </div>
+    <span class="credit">Sawtooth ridgeline, 6:41 PM</span>
+  </section>
+  {% else %}
+  <section class="hero hero-{{ h[6] if h else 'lsc' }}">
+    <div class="wrap">
+      <div>
+        <span class="eyebrow">{{ h[1] if h else store.tagline }}</span>
+        <h1>{{ (h[2] if h else store.name)|safe }}</h1>
+        <p class="lead">{{ h[3] if h else store.tagline }}</p>
+        <div class="ctas"><a class="btn lg" href="#c-{{ h[4] if h else cats[0] }}">{{ h[5] if h else "Shop now" }}</a><a class="btn lg ghost" href="#p-{{ hero_item.sku }}">{{ hero_item.name }}</a></div>
+      </div>
+      <img class="hero-img" src="/static/products/{{ hero_item.image }}" alt="{{ hero_item.name }}">
+    </div>
+  </section>
+  {% endif %}
+
+  <section class="props"><div class="wrap">
+    <div class="prop"><svg viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg><div><strong>Free standard shipping</strong><span>Arrives in 3–5 business days</span></div></div>
+    <div class="prop"><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v4h4"/></svg><div><strong>{{ r.return_window_days }}-day returns</strong><span>Order # and ZIP, no account needed</span></div></div>
+    <div class="prop"><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/><path d="M8.5 12l2.5 2.5 4.5-5"/></svg><div><strong>{{ "Lifetime guarantee" if r.warranty_days >= 3650 else ((r.warranty_days // 365) ~ "-year warranty" if r.warranty_days >= 365 else "Quality checked") }}</strong><span>Repair or replacement on defects</span></div></div>
+    <div class="prop"><svg viewBox="0 0 24 24"><path d="M3 12l9-9h8v8l-9 9z"/><circle cx="16" cy="8" r="1.5"/></svg><div>{% if r.price_adjustment_days %}<strong>{{ r.price_adjustment_days }}-day price protection</strong><span>Price drops refunded once per item</span>{% else %}<strong>Fair prices, always</strong><span>No inflated "sale" pricing</span>{% endif %}</div></div>
+  </div></section>
+
+  <section class="section" id="shop"><div class="wrap">
+    <div class="section-head">
+      <div><span class="eyebrow">Shop {{ store.name }}</span><h2 id="grid-title">All products</h2></div>
+      <div class="chips" role="tablist">
+        <a class="chip on" data-cat="" href="#shop">All</a>
+        {% for c in cats %}<a class="chip" data-cat="{{ c }}" href="#c-{{ c }}">{{ CAT.get(c, c|title) }}</a>{% endfor %}
+      </div>
+    </div>
+    <div class="grid">{% for i in items %}
+      {% set col = COLOR.get(i.sku, ("", "#999")) %}
+      <article class="p-card" data-testid="product-{{ i.sku }}" data-cat="{{ i.category }}">
+        <a class="img" href="#p-{{ i.sku }}">
+          {% if not i.in_stock %}<span class="badge out">Sold out</span>
+          {% elif i.current_price < i.price %}<span class="badge drop">Price drop</span>
+          {% elif i.rating >= 4.7 %}<span class="badge">Top rated</span>
+          {% elif loop.index == 1 %}<span class="badge">Bestseller</span>{% endif %}
+          <img src="/static/products/{{ i.image }}" alt="{{ i.name }}" loading="lazy">
+        </a>
+        <div class="meta">
+          <a class="name" href="#p-{{ i.sku }}">{{ i.name }}</a>
+          <span class="sub">{{ col[0] }}{% if col[0] %} · {% endif %}{{ CAT.get(i.category, i.category|title) }}</span>
+          <span class="stars" style="--pct: {{ (i.rating / 5 * 100)|round(1) }}%"><i>★★★★★</i>{{ i.rating }} ({{ "{:,}".format(i.review_count) }}){% if not i.in_stock %} · Out of stock{% endif %}</span>
+          <span class="price">{% if i.current_price < i.price %}<span class="now-drop">${{ "%.2f"|format(i.current_price) }}</span> <s>${{ "%.2f"|format(i.price) }}</s>{% else %}${{ "%.2f"|format(i.current_price) }}{% endif %}</span>
+          <a class="btn small buy" href="/s/{{ store.id }}/checkout?sku={{ i.sku }}" data-testid="buy-{{ i.sku }}">Buy</a>
+        </div>
+      </article>{% endfor %}
+    </div>
+  </div></section>
+
+  {% set s = STORY.get(store.id) %}
+  {% if s %}{% set s_item = items|selectattr("sku", "equalto", s[0])|first %}
+  <section class="story" id="story"><div class="wrap"><div class="inner">
+    <div class="copy"><span class="eyebrow">{{ s[1] }}</span><h2>{{ s[2] }}</h2><p class="muted" style="font-size:16px;margin:8px 0 26px">{{ s[3] }}</p><div><a class="btn" href="{{ s[4] }}">{{ s[5] }}</a></div></div>
+    <div class="pic">{% if s_item %}<img src="/static/products/{{ s_item.image }}" alt="{{ s_item.name }}" loading="lazy">{% endif %}</div>
+  </div></div></section>
+  {% else %}<span id="story"></span>{% endif %}
+</div>
+
+{# ---------- product detail pages: /s/<store>#p-<SKU> ---------- #}
+{% for i in items %}
+{% set col = COLOR.get(i.sku, ("Standard", "#999")) %}
+{% set revs = REV.get(i.sku) or REV.get(i.category) or [] %}
+{% set rt = i.rating %}
+{% set p5 = [8, ((rt - 2.4) * 32)|round|int]|max %}{% set p1 = [2, ((4.2 - rt) * 18)|round|int]|max %}
+{% set p2 = [2, ((4.4 - rt) * 9)|round|int]|max %}{% set p4 = 18 %}{% set p3 = 100 - p5 - p4 - p2 - p1 %}
+<section class="pdp" id="p-{{ i.sku }}"><div class="wrap">
+  <nav class="crumbs"><a href="/s/{{ store.id }}">Home</a><span>/</span><a href="#c-{{ i.category }}">{{ CAT.get(i.category, i.category|title) }}</a><span>/</span><span>{{ i.name }}</span></nav>
+  <div class="pdp-grid">
+    <div class="gallery">
+      <div class="thumbs"><img src="/static/products/{{ i.image }}" alt=""><img class="t2" src="/static/products/{{ i.image }}" alt="" style="object-fit:none;object-position:50% 45%"></div>
+      <div class="main"><img src="/static/products/{{ i.image }}" alt="{{ i.name }}" loading="lazy"></div>
+    </div>
+    <div class="pdp-info">
+      <span class="eyebrow">{{ CAT.get(i.category, i.category|title) }} · SKU {{ i.sku }}</span>
+      <h1>{{ i.name }}</h1>
+      <a class="stars" href="#rev-{{ i.sku }}" style="--pct: {{ (i.rating / 5 * 100)|round(1) }}%; text-decoration:none"><i>★★★★★</i>{{ i.rating }} · {{ "{:,}".format(i.review_count) }} reviews</a>
+      <div class="price">{% if i.current_price < i.price %}<span class="now-drop">${{ "%.2f"|format(i.current_price) }}</span> <s>${{ "%.2f"|format(i.price) }}</s><span class="pill" style="font-size:12px">Save ${{ "%.2f"|format(i.price - i.current_price) }}</span>{% else %}${{ "%.2f"|format(i.current_price) }}{% endif %}</div>
+      <p class="desc">{{ i.description }}</p>
+
+      <div class="opt"><div class="label">Color: <span>{{ col[0] }}</span></div>
+        <div class="swatches">
+          <label title="{{ col[0] }}"><input type="radio" name="color-{{ i.sku }}" checked><i style="background:{{ col[1] }}"></i></label>
+          {% for n, hx in ALT.get(store.id, []) if n != col[0] %}<label title="{{ n }} (ships in 2–3 weeks)"><input type="radio" name="color-{{ i.sku }}"><i style="background:{{ hx }}"></i></label>{% endfor %}
+        </div></div>
+      {% if i.category == "jacket" %}
+      <div class="opt"><div class="label">Size: <span>{{ i.specs.size or "M" }} · fits true to size</span></div>
+        <div class="sizes">{% for sz in ["XS", "S", "M", "L", "XL", "XXL"] %}<label><input type="radio" name="size-{{ i.sku }}" {{ "checked" if sz == (i.specs.size or "M") }}><span>{{ sz }}</span></label>{% endfor %}</div></div>
+      {% elif i.category == "apparel" %}
+      <div class="opt"><div class="label">Size</div><div class="sizes"><label><input type="radio" name="size-{{ i.sku }}" checked><span>One size</span></label></div></div>
+      {% elif i.category == "textiles" %}
+      <div class="opt"><div class="label">Size</div><div class="sizes"><label><input type="radio" name="size-{{ i.sku }}" checked><span>{{ i.specs.size_in|replace("x", " × ") }} in</span></label><label><input type="radio" name="size-{{ i.sku }}"><span>60 × 80 in</span></label></div></div>
+      {% elif i.category in ("blender", "toaster", "kettle") %}
+      <div class="opt"><div class="label">Plug</div><div class="sizes"><label><input type="radio" name="plug-{{ i.sku }}" checked><span>US · 120 V</span></label></div></div>
+      {% endif %}
+
+      <div class="pdp-actions">
+        <button class="btn lg secondary" type="button" onclick="addToBag(this)">Add to bag</button>
+        <a class="btn lg" href="/s/{{ store.id }}/checkout?sku={{ i.sku }}">Buy now</a>
+      </div>
+      <div class="stock {{ '' if i.in_stock else 'out' }}">{% if i.in_stock %}In stock · ships in 1–2 business days{% else %}Out of stock{% endif %}</div>
+      <div class="perks">
+        <div><svg viewBox="0 0 24 24"><path d="M3 7h11v9H3zM14 10h4l3 3v3h-7"/><circle cx="7" cy="17.5" r="1.6"/><circle cx="17" cy="17.5" r="1.6"/></svg><span>Free standard shipping to every ZIP code</span></div>
+        <div><svg viewBox="0 0 24 24"><path d="M4 12a8 8 0 1 0 3-6.2"/><path d="M4 4v4h4"/></svg><span>{{ r.return_window_days }}-day returns from delivery · <a href="/s/{{ store.id }}/returns">start online</a></span></div>
+        <div><svg viewBox="0 0 24 24"><path d="M12 3l8 3v6c0 4.5-3.4 8-8 9-4.6-1-8-4.5-8-9V6z"/></svg><span>{{ "Lifetime guarantee" if r.warranty_days >= 3650 else ((r.warranty_days // 365) ~ "-year limited warranty" if r.warranty_days >= 365 else "Covered by our quality promise") }}</span></div>
+      </div>
+      <div class="acc">
+        <details open><summary>Specifications</summary><div class="body"><table class="specs">
+          {% for k, v in i.specs.items() %}<tr><th>{{ SPEC.get(k, k|replace("_", " ")|capitalize) }}</th><td>{% if v is sameas true %}Yes{% elif v is sameas false %}No{% else %}{{ v|string|capitalize if v is string else v }}{% endif %}</td></tr>{% endfor %}
+          <tr><th>SKU</th><td class="mono">{{ i.sku }}</td></tr>
+        </table></div></details>
+        <details><summary>Shipping &amp; returns</summary><div class="body">
+          Free standard shipping. Return within {{ r.return_window_days }} days of delivery with your order number and shipping ZIP code.
+          {% if store.has_policy %}See the full <a href="/s/{{ store.id }}/policy">returns &amp; warranty policy</a> for fees and exclusions.{% endif %}
+        </div></details>
+        <details><summary>In the box</summary><div class="body">{{ i.name }}, quick-start guide{% if i.category in ("headphones", "earbuds") %}, USB-C cable, travel case{% elif i.category == "accessories" %}, USB-C to USB-C cable{% endif %}.</div></details>
+      </div>
+    </div>
+  </div>
+
+  <div class="reviews" id="rev-{{ i.sku }}">
+    <div>
+      <h2>Reviews</h2>
+      <div class="rating-big">{{ i.rating }}</div>
+      <span class="stars" style="--pct: {{ (i.rating / 5 * 100)|round(1) }}%"><i>★★★★★</i>{{ "{:,}".format(i.review_count) }} verified reviews</span>
+      <div class="bars">
+        {% for n, pc in [(5, p5), (4, p4), (3, p3), (2, p2), (1, p1)] %}<div><span>{{ n }}★</span><b style="--w: {{ pc }}%"></b><span>{{ pc }}%</span></div>{% endfor %}
+      </div>
+    </div>
+    <div>
+      {% for st, title, body, who, when in revs %}
+      <div class="review">
+        <span class="stars" style="--pct: {{ st * 20 }}%"><i>★★★★★</i></span>
+        <h4>{{ title }}</h4><p>{{ body }}</p>
+        <div class="who">{{ who }} · <span class="verified">Verified buyer</span> · {{ when }}</div>
+      </div>
+      {% endfor %}
+      {% if store.id == "northwind-audio" %}<a class="muted" href="/s/{{ store.id }}/reviews">Read the review summaries for all headphones →</a>{% endif %}
+    </div>
+  </div>
+</div></section>
+{% endfor %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+(function () {
+  var cards = document.querySelectorAll('.p-card'), chips = document.querySelectorAll('.chip'), title = document.getElementById('grid-title');
+  function filter(cat) {
+    cards.forEach(function (c) { c.style.display = !cat || c.dataset.cat === cat ? '' : 'none'; });
+    chips.forEach(function (c) { c.classList.toggle('on', (c.dataset.cat || '') === (cat || '')); });
+    var on = document.querySelector('.chip.on'); if (title) title.textContent = cat && on ? on.textContent : 'All products';
+  }
+  function route() {
+    var h = decodeURIComponent(location.hash || '');
+    if (h.indexOf('#c-') === 0) { filter(h.slice(3)); var s = document.getElementById('shop'); if (s) s.scrollIntoView(); }
+    else if (h.indexOf('#p-') === 0) { window.scrollTo(0, 0); }
+    else if (h === '#shop' || h === '') { filter(''); }
+  }
+  window.addEventListener('hashchange', route); route();
+  window.addToBag = function (btn) {
+    var n = document.querySelector('.bag-count'); if (n) n.textContent = (+n.textContent || 0) + 1;
+    btn.textContent = 'Added ✓'; setTimeout(function () { btn.textContent = 'Add to bag'; }, 1600);
+  };
+})();
+</script>
 {% endblock %}

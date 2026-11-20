@@ -1,11 +1,30 @@
-{% extends "base.html" %}{% block body %}
-<div class="card" style="border:3px dashed #222" data-testid="return-label">
-<h2>PREPAID RETURN LABEL</h2><pre>
-FROM: Alex Moreno, San Francisco, CA
-TO:   {{ store.name }} Returns Center
-RMA:  {{ ret.rma }}
-ORDER: {{ ret.order_no }}   SKU: {{ ret.sku }}
-DROP OFF BY: {{ ret.drop_off_by }}
-||| |||| | ||| || |||| | || ||| |
-</pre></div>
+{% extends "base.html" %}
+{% block title %}Return label {{ ret.rma }} · {{ store.name }}{% endblock %}
+{% block body %}
+<div class="page"><div class="wrap" style="max-width:760px">
+  <div class="no-print" style="display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:22px;flex-wrap:wrap">
+    <div><span class="eyebrow">Prepaid return label</span><h2 style="margin:0">Return {{ ret.rma }}</h2></div>
+    <button class="btn" type="button" onclick="window.print()">Print label</button>
+  </div>
+  <div class="label-sheet" data-testid="return-label">
+    <div class="lh"><span>PREPAID RETURN</span><small>GROUND<br>POSTAGE PAID</small></div>
+    <div class="addr">
+      <div><b>FROM</b>Alex Moreno<br>San Francisco, CA</div>
+      <div><b>RMA</b><span style="font-weight:700;font-size:13px">{{ ret.rma }}</span><br>ORDER {{ ret.order_no }}<br>SKU {{ ret.sku }}</div>
+    </div>
+    <div>
+      <b style="font-size:9px;letter-spacing:.1em">SHIP TO</b>
+      <div class="to">{{ store.name|upper }} RETURNS CENTER<br>DOCK 4 · 100 DEMO PARKWAY<br>RENO NV 89500</div>
+      <div class="qrrow" style="margin-top:12px">
+        <div class="qr" data-qr="{{ ret.label_url }}"></div>
+        <div><div style="font-size:10px;letter-spacing:.1em">DROP OFF BY</div><div class="big">{{ ret.drop_off_by }}</div>
+          <div style="margin-top:6px;font-size:10.5px">Scan at any drop-off point.<br>Refund: ${{ "%.2f"|format(ret.refund_amount) }}</div></div>
+      </div>
+    </div>
+    <div><div class="barcode" data-barcode="{{ ret.rma }}"></div><div style="text-align:center;font:600 12px ui-monospace,Menlo,monospace;letter-spacing:.2em;margin-top:4px">{{ ret.rma }}</div></div>
+    <div class="foot"><span>{{ store.name }} · {{ store.support_email }}</span><span>Demo label · not valid for shipping</span></div>
+  </div>
+  <p class="muted no-print" style="text-align:center;margin-top:18px">Attach the label to the outside of the package, or show the QR code at drop-off.</p>
+</div></div>
 {% endblock %}
+{% block scripts %}{% include "_qr.html" %}{% endblock %}

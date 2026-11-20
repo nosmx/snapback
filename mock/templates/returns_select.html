@@ -1,27 +1,83 @@
-{% extends "base.html" %}{% block body %}
-<div class="card" data-testid="order-found">
-<h2>Order {{ order.order_no }}</h2>
-<div style="display:flex;gap:18px;align-items:center">
-  <img class="thumb" style="width:140px" src="/static/products/{{ image }}" alt="">
-  <div><strong>{{ order.name }}</strong><br>${{ "%.2f"|format(order.price) }} · delivered {{ order.delivered_at[:10] }}<br>
-  <span class="muted">Return by {{ order.return_by }}</span>
-  {% if window_open %}<span class="pill">Eligible for return</span>{% else %}<span class="err">Return window closed</span>{% endif %}</div>
-</div>
-{% if window_open %}
-<form method="post" action="/s/{{ store.id }}/returns/submit">
-  <input type="hidden" name="order_no" value="{{ order.order_no }}"><input type="hidden" name="zip_code" value="{{ order.ship_zip }}">
-  <input type="hidden" name="idempotency_key" value=""><input type="hidden" name="verified_by" value="">
-  <label for="reason">Reason for return</label>
-  <select id="reason" name="reason" data-testid="reason" required>
-    <option value="">Select a reason</option>
-    {% for v, t in reasons %}<option value="{{ v }}">{{ t }}</option>{% endfor %}
-  </select>
-  <label for="refund_method">Refund to</label>
-  <select id="refund_method" name="refund_method" data-testid="refund-method">
-    <option value="original_payment">Original payment method</option><option value="store_credit">Store credit</option>
-  </select>
-  <p><button class="btn" type="submit" data-testid="submit-return">Submit return</button></p>
-</form>
-{% endif %}
-</div>
+{% extends "base.html" %}
+{% block title %}Return items · Order {{ order.order_no }} · {{ store.name }}{% endblock %}
+{% block body %}
+{% set r = store.merchant_rules %}
+<div class="page"><div class="wrap" style="max-width:1040px">
+  <ol class="steps"><li class="done"><span>Find your order</span></li><li class="on"><span>Choose items</span></li><li><span>Confirm</span></li></ol>
+  <div data-testid="order-found">
+  <div class="two-col">
+    <div class="panel">
+      <div class="panel-title">
+        <div><span class="eyebrow">Order {{ order.order_no }}</span><h2 style="margin:0">Which item are you returning?</h2></div>
+        <span class="muted">Delivered {{ order.delivered_at[:10] }}</span>
+      </div>
+      <label class="item-row {{ 'selected' if window_open }}" style="margin:0;font-weight:400;cursor:pointer">
+        <input class="check" type="checkbox" {{ "checked" if window_open else "disabled" }} aria-label="Return {{ order.name }}">
+        <img src="/static/products/{{ image }}" alt="">
+        <div>
+          <div class="nm">{{ order.name }}</div>
+          <div class="muted">SKU {{ order.sku }} · Qty {{ order.qty or 1 }} · ${{ "%.2f"|format(order.price) }}</div>
+          <div style="margin-top:6px">{% if window_open %}<span class="pill">Eligible for return</span>{% else %}<span class="pill bad err">Return window closed</span>{% endif %}
+            <span class="muted" style="margin-left:6px">Return by {{ order.return_by }}</span></div>
+        </div>
+      </label>
+
+      {% if window_open %}
+      <form method="post" action="/s/{{ store.id }}/returns/submit" style="margin-top:8px">
+        <input type="hidden" name="order_no" value="{{ order.order_no }}"><input type="hidden" name="zip_code" value="{{ order.ship_zip }}">
+        <input type="hidden" name="idempotency_key" value=""><input type="hidden" name="verified_by" value="">
+        <label for="reason">Reason for return</label>
+        <select id="reason" name="reason" data-testid="reason" required>
+          <option value="">Select a reason</option>
+          {% for v, t in reasons %}<option value="{{ v }}">{{ t }}</option>{% endfor %}
+        </select>
+        <label for="refund_method">Refund to</label>
+        <select id="refund_method" name="refund_method" data-testid="refund-method">
+          <option value="original_payment">Original payment method (Demo card •••• 4242)</option><option value="store_credit">Store credit</option>
+        </select>
+        <div class="label">Return method</div>
+        <div class="choice on"><span class="dot"></span><div class="grow"><b>Drop off with a QR code</b><span>No box or printer needed at most drop-off points</span></div><b>{{ "Free" }}</b></div>
+        <p style="margin-top:24px"><button class="btn lg block" type="submit" data-testid="submit-return">Submit return</button></p>
+      </form>
+      {% else %}
+      <div class="notice" style="margin-top:18px">This order is past its {{ r.return_window_days }}-day return window. If the item is defective, it may still be covered by the {% if store.has_policy %}<a href="/s/{{ store.id }}/policy">warranty</a>{% else %}warranty{% endif %}. Contact <a href="mailto:{{ store.support_email }}">{{ store.support_email }}</a>.</div>
+      {% endif %}
+    </div>
+
+    <aside>
+      <div class="panel" style="position:sticky;top:96px">
+        <h3>Refund summary</h3>
+        <dl class="summary-rows" id="refund-est" data-price="{{ order.price }}" data-pct="{{ r.restocking_pct_non_defective }}" data-ship="{{ r.return_shipping_non_defective }}">
+          <div><dt>Item price</dt><dd>${{ "%.2f"|format(order.price) }}</dd></div>
+          <div><dt>Restocking fee</dt><dd data-k="restock">—</dd></div>
+          <div><dt>Return shipping</dt><dd data-k="ship">—</dd></div>
+          <div class="total"><dt>Estimated refund</dt><dd data-k="total">—</dd></div>
+        </dl>
+        <p class="hint" id="refund-hint">Select a reason to see your refund. Defective or damaged items are always free to return.</p>
+      </div>
+    </aside>
+  </div>
+  </div>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () {
+  var sel = document.getElementById('reason'), box = document.getElementById('refund-est');
+  if (!sel || !box) return;
+  var price = +box.dataset.price, pct = +box.dataset.pct, ship = +box.dataset.ship;
+  var f = function (n) { return '$' + n.toFixed(2); };
+  function upd() {
+    var v = sel.value, k = function (n) { return box.querySelector('[data-k="' + n + '"]'); };
+    if (!v) { ['restock', 'ship', 'total'].forEach(function (n) { k(n).textContent = '—'; }); return; }
+    var defective = v === 'defective' || v === 'arrived_damaged';
+    var rs = defective ? 0 : Math.round(price * pct) / 100, sh = defective ? 0 : ship;
+    k('restock').textContent = rs ? '−' + f(rs) : 'Free';
+    k('ship').textContent = sh ? '−' + f(sh) : 'Free';
+    k('total').textContent = f(price - rs - sh);
+    document.getElementById('refund-hint').textContent = defective ? 'No fees for defective or damaged items.' : 'Fees apply to non-defective returns, per the store policy.';
+  }
+  sel.addEventListener('change', upd); upd();
+})();
+</script>
 {% endblock %}

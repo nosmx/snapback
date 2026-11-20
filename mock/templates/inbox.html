@@ -1,4 +1,26 @@
-{% extends "base.html" %}{% block title %}Inbox{% endblock %}{% block body %}
-<div class="card"><h2>Inbox — alex.moreno@mail.example</h2>
-<table>{% for e in emails %}<tr><td class="muted">{{ e.received_at[:16]|replace("T"," ") }}</td><td>{{ e["from"] }}</td><td><a href="/inbox/{{ e.email_id }}">{{ e.subject }}</a></td></tr>{% endfor %}</table></div>
+{% extends "base.html" %}
+{% block title %}Inbox · alex.moreno@mail.example{% endblock %}
+{% block body %}
+{% set AV = {"Northwind Audio": "#0e0f11", "Juniper Home": "#2f5d46", "Kestrel Outdoors": "#d4622a", "Larkspur Supply Co.": "#4b3f72"} %}
+<div class="page"><div class="wrap">
+  <div class="mail">
+    {% set count = emails|length %}{% include "_mail_side.html" %}
+    <section>
+      <div class="mail-head"><h2>Inbox — alex.moreno@mail.example</h2><span class="muted">{{ emails|length }} messages</span></div>
+      <ul class="mail-list">
+        {% for e in emails %}
+        {% set sender = e["from"].split(" <")[0] %}
+        {% set lines = e.body_text.split("\n") %}
+        {% set snippet = (lines|reject("equalto", "")|list)[1] if (lines|reject("equalto", "")|list)|length > 1 else lines[0] %}
+        <li><a href="/inbox/{{ e.email_id }}">
+          <span class="av" style="background:{{ AV.get(sender, '#8a8a8e') }}">{{ sender[:1] }}</span>
+          <span class="from">{{ sender }}</span>
+          <span class="subj">{{ e.subject }} <span>— {{ snippet[:90] }}</span></span>
+          <span class="when">{{ e.received_at[:16]|replace("T", " ") }}</span>
+        </a></li>
+        {% endfor %}
+      </ul>
+    </section>
+  </div>
+</div></div>
 {% endblock %}

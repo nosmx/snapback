@@ -1,0 +1,23 @@
+<script src="/static/vendor/qrcode.min.js"></script>
+<script>
+(function () {
+  document.querySelectorAll('[data-qr]').forEach(function (el) {
+    var text = el.getAttribute('data-qr');
+    try {
+      var q = qrcode(0, 'M'); q.addData(text); q.make();
+      el.innerHTML = q.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+    } catch (e) { el.textContent = text; el.style.fontSize = '10px'; el.style.wordBreak = 'break-all'; }
+  });
+  document.querySelectorAll('[data-barcode]').forEach(function (el) {
+    var s = el.getAttribute('data-barcode'), h = 0, html = '';
+    for (var i = 0; i < s.length; i++) {
+      h = (h * 31 + s.charCodeAt(i)) >>> 0;
+      for (var j = 0; j < 4; j++) {
+        var w = 1 + ((h >> (j * 3)) & 3), gap = 1 + ((h >> (j * 3 + 2)) & 1);
+        html += '<i style="width:' + w + 'px;margin-right:' + gap + 'px"></i>';
+      }
+    }
+    el.innerHTML = '<i style="width:2px;margin-right:1px"></i><i style="width:1px;margin-right:2px"></i>' + html + '<i style="width:2px;margin-left:1px"></i>';
+  });
+})();
+</script>

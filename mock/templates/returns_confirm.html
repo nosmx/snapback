@@ -1,17 +1,53 @@
-{% extends "base.html" %}{% block body %}
-<div class="card" data-testid="return-confirmation">
-{% if ret %}
-<h2 class="ok">{% if already %}Return already on file{% else %}Return approved{% endif %}</h2>
-<table>
-<tr><th>Return authorization</th><td data-testid="rma">{{ ret.rma }}</td></tr>
-<tr><th>Order</th><td data-testid="order-no">{{ ret.order_no }}</td></tr>
-<tr><th>Reason</th><td>{{ ret.reason }}</td></tr>
-<tr><th>Restocking fee</th><td>${{ "%.2f"|format(ret.restocking_fee) }}</td></tr>
-<tr><th>Return shipping</th><td>${{ "%.2f"|format(ret.return_shipping_fee) }}</td></tr>
-<tr><th>Refund</th><td data-testid="refund-amount">${{ "%.2f"|format(ret.refund_amount) }} to {{ ret.refund_method|replace("_", " ") }}</td></tr>
-<tr><th>Drop off by</th><td data-testid="drop-off-by">{{ ret.drop_off_by }}</td></tr>
-</table>
-<p><a class="btn" href="{{ ret.label_url }}" data-testid="label-link">Print return label</a></p>
-{% else %}<h2>This order already has a return in progress.</h2>{% endif %}
-</div>
+{% extends "base.html" %}
+{% block title %}Return {{ ret.rma if ret else "" }} · {{ store.name }}{% endblock %}
+{% block body %}
+{% set REASON = {"defective": "Item is defective or stopped working", "arrived_damaged": "Arrived damaged", "no_longer_needed": "No longer needed",
+  "wrong_item": "Wrong item received", "better_price": "Found a better price"} %}
+<div class="page"><div class="wrap" style="max-width:1040px">
+  <ol class="steps"><li class="done"><span>Find your order</span></li><li class="done"><span>Choose items</span></li><li class="done"><span>Confirm</span></li></ol>
+  <div data-testid="return-confirmation">
+  {% if ret %}
+    <div class="confirm-hero">
+      <div class="tick"><svg viewBox="0 0 24 24"><path d="M5 12.5l4.5 4.5L19 7.5"/></svg></div>
+      <span class="eyebrow">{% if already %}Return already on file{% else %}Return approved{% endif %}</span>
+      <h1>{% if already %}This return is already on file{% else %}Your return is approved{% endif %}</h1>
+      <p class="muted" style="font-size:15px">We've emailed your return details and QR code to alex.moreno@mail.example.</p>
+      <div class="ref">Return authorization <b data-testid="rma">{{ ret.rma }}</b></div>
+    </div>
+    <div class="two-col even">
+      <div class="panel">
+        <h3>Return details</h3>
+        <table class="kv">
+          <tr><th>Order</th><td data-testid="order-no">{{ ret.order_no }}</td></tr>
+          <tr><th>Item</th><td>{{ order.name if order else ret.sku }} <span class="muted">· SKU {{ ret.sku }}</span></td></tr>
+          <tr><th>Reason</th><td>{{ REASON.get(ret.reason, ret.reason|replace("_", " ")) }}</td></tr>
+          <tr><th>Restocking fee</th><td>${{ "%.2f"|format(ret.restocking_fee) }}</td></tr>
+          <tr><th>Return shipping</th><td>${{ "%.2f"|format(ret.return_shipping_fee) }}</td></tr>
+          <tr><th>Refund</th><td><b data-testid="refund-amount">${{ "%.2f"|format(ret.refund_amount) }} to {{ ret.refund_method|replace("_", " ") }}</b></td></tr>
+          <tr><th>Drop off by</th><td><b data-testid="drop-off-by">{{ ret.drop_off_by }}</b></td></tr>
+        </table>
+      </div>
+      <div class="panel">
+        <h3>Your return QR code</h3>
+        <div class="qr-box" style="margin:14px 0 18px">
+          <div class="qr" data-qr="{{ ret.label_url }}" aria-label="Return QR code for {{ ret.rma }}"></div>
+          <div class="side-note"><p style="margin:0 0 8px;color:var(--text)"><b>Show this code at any drop-off point.</b></p>
+            <p style="margin:0">They'll print the label for you. Pack the item with its accessories and drop it off by <b>{{ ret.drop_off_by }}</b>.</p></div>
+        </div>
+        <a class="btn block" href="{{ ret.label_url }}" data-testid="label-link">Print return label</a>
+        <ol class="timeline" style="margin-top:24px">
+          <li class="done"><div><b>Return approved</b><span>{{ ret.created_at|replace("T", " ") }} UTC</span></div></li>
+          <li><div><b>Drop off your package</b><span>By {{ ret.drop_off_by }}</span></div></li>
+          <li><div><b>We inspect it</b><span>Within 3 business days of arrival</span></div></li>
+          <li><div><b>Refund issued</b><span>${{ "%.2f"|format(ret.refund_amount) }} to your {{ ret.refund_method|replace("_", " ") }}</span></div></li>
+        </ol>
+      </div>
+    </div>
+  {% else %}
+    <div class="panel error-panel"><div class="icon">i</div><h2>This order already has a return in progress.</h2>
+      <p class="muted">Check your email for the return details, or contact <a href="mailto:{{ store.support_email }}">{{ store.support_email }}</a>.</p></div>
+  {% endif %}
+  </div>
+</div></div>
 {% endblock %}
+{% block scripts %}{% include "_qr.html" %}{% endblock %}

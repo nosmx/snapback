@@ -1,5 +1,28 @@
-{% extends "base.html" %}{% block body %}
-<div class="card"><h2>Stores</h2>
-<ul>{% for s in stores %}<li><a href="/s/{{ s.id }}">{{ s.name }}</a> — <a href="/s/{{ s.id }}/returns">returns portal</a>{% if s.has_policy %} · <a href="/s/{{ s.id }}/policy">policy</a>{% endif %}</li>{% endfor %}</ul></div>
-<div class="card"><a href="/inbox">User inbox</a> · <a href="/bank">User bank ledger</a> · <a href="/admin">Demo admin</a></div>
+{% extends "base.html" %}
+{% block title %}Mock world · Snapback demo{% endblock %}
+{% block body %}
+{% set LOOK = {"northwind-audio": ("#0e0f11", "#ecebe7", "Jost", "NORTHWIND", ".34em", "nwa-arc-anc2.png"),
+  "juniper-home": ("#f3ece0", "#2f5d46", "Fraunces", "juniper", "-.02em", "jnh-pour-ktl.png"),
+  "kestrel-outdoors": ("#1d2720", "#f2efe6", "Barlow Condensed", "KESTREL", ".06em", "kso-ridge-jkt.png"),
+  "larkspur-supply": ("#eeeaf6", "#4b3f72", "Fraunces", "Larkspur", "0", "lsc-desk-lamp.png")} %}
+<div class="page"><div class="wrap">
+  <span class="eyebrow">Snapback demo environment</span>
+  <h1 style="font-size:36px">Fictional merchant world</h1>
+  <p class="muted" style="font-size:15px;max-width:640px">Every store below is fictional. Each has a storefront, a returns portal (order # + ZIP, no login) and a mock checkout. The user's inbox and bank ledger live here too.</p>
+  <div class="store-tiles" style="margin-top:26px">
+    {% for s in stores %}{% set l = LOOK.get(s.id, ("#eee", "#222", "Inter", s.name, "0", "")) %}
+    <div class="store-tile">
+      <a class="top" href="/s/{{ s.id }}" style="background:{{ l[0] }};color:{{ l[1] }};text-decoration:none;font-family:'{{ l[2] }}',sans-serif;font-size:26px;letter-spacing:{{ l[4] }};font-weight:600;gap:14px">
+        {% if l[5] %}<img src="/static/products/{{ l[5] }}" alt="" style="width:110px;height:110px;object-fit:cover;border-radius:8px">{% endif %}<span>{{ l[3] }}</span></a>
+      <div class="bot"><b>{{ s.name }}</b><div>{{ s.tagline }}</div>
+        <div class="links"><a href="/s/{{ s.id }}">Storefront</a><a href="/s/{{ s.id }}/returns">Returns portal</a>{% if s.has_policy %}<a href="/s/{{ s.id }}/policy">Policy</a>{% else %}<span class="muted">No published policy</span>{% endif %}</div></div>
+    </div>{% endfor %}
+  </div>
+  <div class="tool-tiles">
+    <a class="tool-tile" href="/inbox"><b>Inbox</b><span>alex.moreno@mail.example</span></a>
+    <a class="tool-tile" href="/bank"><b>Bank ledger</b><span>Charges, refunds, credits</span></a>
+    <a class="tool-tile" href="/calendar"><b>Calendar</b><span>Drop-off reminders</span></a>
+    <a class="tool-tile" href="/admin"><b>Demo admin</b><span>Prices, carrier, clock, reset</span></a>
+  </div>
+</div></div>
 {% endblock %}

@@ -1,8 +1,50 @@
-{% extends "base.html" %}{% block body %}
-<div class="card"><h2>Start a return</h2><p class="muted">No account needed. Enter your order number and the ZIP code it shipped to.</p>
-<form method="post" action="/s/{{ store.id }}/returns/lookup">
-  <label for="order_no">Order number</label><input id="order_no" name="order_no" data-testid="order-no" required>
-  <label for="zip_code">Shipping ZIP code</label><input id="zip_code" name="zip_code" data-testid="zip" required>
-  <p><button class="btn" type="submit" data-testid="lookup">Find my order</button></p>
-</form></div>
+{% extends "base.html" %}
+{% block title %}Start a return · {{ store.name }}{% endblock %}
+{% block body %}
+{% set r = store.merchant_rules %}
+<div class="page"><div class="wrap" style="max-width:1040px">
+  <ol class="steps"><li class="on"><span>Find your order</span></li><li><span>Choose items</span></li><li><span>Confirm</span></li></ol>
+  <div class="two-col">
+    <div class="panel">
+      <span class="eyebrow">Returns &amp; exchanges</span>
+      <h1 style="font-size:34px">Start a return</h1>
+      <p class="muted" style="font-size:15px">No account needed. Enter your order number and the ZIP code it shipped to.</p>
+      <form method="post" action="/s/{{ store.id }}/returns/lookup">
+        <label for="order_no">Order number</label><input id="order_no" name="order_no" data-testid="order-no" placeholder="{{ store.order_prefix }}-12345" autocomplete="off" required>
+        <p class="hint">Find it in your order confirmation or delivery email. It starts with {{ store.order_prefix }}-.</p>
+        <label for="zip_code">Shipping ZIP code</label><input id="zip_code" name="zip_code" data-testid="zip" inputmode="numeric" placeholder="ZIP code" required>
+        <p style="margin-top:24px"><button class="btn lg block" type="submit" data-testid="lookup">Find my order</button></p>
+      </form>
+    </div>
+    <aside class="side-note">
+      <div class="panel" style="box-shadow:none">
+        <h3>How returns work</h3>
+        <ol class="timeline" style="margin-top:14px">
+          <li><div><b>Find your order</b><span>Order number + ZIP, no login.</span></div></li>
+          <li><div><b>Tell us why</b><span>Pick a reason and where your refund goes.</span></div></li>
+          <li><div><b>Drop it off</b><span>Show the QR code at any drop-off point. No printer needed.</span></div></li>
+          <li><div><b>Get your refund</b><span>Issued after inspection, within 3 business days of arrival.</span></div></li>
+        </ol>
+      </div>
+      <div class="panel" style="box-shadow:none">
+        <h3>The short version</h3>
+        <ul>
+          <li>{{ r.return_window_days }} days from delivery to start a return.</li>
+          <li>Defective or damaged items: free return shipping, no fees.</li>
+          {% if r.restocking_pct_non_defective %}<li>Opened, non-defective items: {{ r.restocking_pct_non_defective }}% restocking fee.</li>{% endif %}
+          {% if r.return_shipping_non_defective %}<li>Non-defective returns: ${{ "%.2f"|format(r.return_shipping_non_defective) }} return shipping.</li>{% endif %}
+        </ul>
+        {% if store.has_policy %}<a href="/s/{{ store.id }}/policy">Read the full policy →</a>{% endif %}
+      </div>
+    </aside>
+  </div>
+</div></div>
+{% endblock %}
+{% block scripts %}
+<script>
+(function () { // prefill from links in order emails (?order_no=…&zip_code=…)
+  var q = new URLSearchParams(location.search);
+  ['order_no', 'zip_code'].forEach(function (k) { var el = document.getElementById(k); if (el && q.get(k) && !el.value) el.value = q.get(k); });
+})();
+</script>
 {% endblock %}

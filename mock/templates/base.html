@@ -3,43 +3,113 @@
 <head>
 <meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1">
 <title>{% block title %}{{ store.name if store else "Mock world" }}{% endblock %}</title>
-<style>
-  :root { --brand: {{ store.color if store else "#333" }}; --accent: {{ store.accent if store else "#ddd" }}; }
-  * { box-sizing: border-box; }
-  body { margin: 0; font: 15px/1.5 -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; color: #1d1d1f; background: #f6f5f2; }
-  header { background: var(--brand); color: #fff; padding: 14px 24px; display: flex; align-items: baseline; gap: 16px; }
-  header a { color: #fff; text-decoration: none; }
-  header .logo { font-weight: 800; letter-spacing: .04em; font-size: 20px; }
-  header .tag { opacity: .8; font-size: 13px; }
-  header nav { margin-left: auto; display: flex; gap: 16px; font-size: 14px; }
-  main { max-width: 920px; margin: 28px auto; padding: 0 16px; }
-  .card { background: #fff; border-radius: 12px; padding: 20px 24px; box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 16px; }
-  .btn { background: var(--brand); color: #fff; border: 0; padding: 10px 18px; border-radius: 8px; font-weight: 600; cursor: pointer; font-size: 15px; }
-  .btn.secondary { background: #e9e7e2; color: #222; }
-  label { display: block; font-weight: 600; margin: 12px 0 4px; }
-  input, select { padding: 9px 10px; border: 1px solid #ccc; border-radius: 8px; font-size: 15px; width: 100%; max-width: 360px; }
-  .grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 14px; }
-  .grid img, .thumb { width: 100%; border-radius: 10px; }
-  .muted { color: #6b6b6b; font-size: 13px; }
-  .ok { color: #1b7f3b; font-weight: 700; }
-  .err { color: #b3261e; font-weight: 700; }
-  table { width: 100%; border-collapse: collapse; } td, th { text-align: left; padding: 6px 8px; border-bottom: 1px solid #eee; font-size: 14px; }
-  .pill { display: inline-block; padding: 2px 8px; border-radius: 99px; background: var(--accent); color: #222; font-size: 12px; font-weight: 600; }
-  .demo-banner { background: #fff3cd; color: #5c4400; font-size: 12px; text-align: center; padding: 4px; }
-  pre { white-space: pre-wrap; font: 14px/1.5 ui-monospace, Menlo, monospace; }
-</style>
+<link rel="icon" type="image/svg+xml" href="/static/brand/{{ store.id if store else 'mock' }}.svg">
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+{% block fonts %}
+{% set FONTS = {
+  "northwind-audio": "family=Jost:wght@300;400;500&family=Inter:wght@400;500;600;700",
+  "juniper-home": "family=Fraunces:ital,opsz,wght@0,9..144,400;0,9..144,500;1,9..144,400;1,9..144,500&family=DM+Sans:wght@400;500;700",
+  "kestrel-outdoors": "family=Barlow+Condensed:wght@500;600;700;800&family=Barlow:wght@400;500;600;700",
+  "larkspur-supply": "family=Fraunces:ital,opsz,wght@0,9..144,500;1,9..144,500&family=Inter:wght@400;500;600;700"} %}
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?{{ FONTS.get(store.id, 'family=Inter:wght@400;500;600;700') if store else 'family=Inter:wght@400;500;600;700' }}&display=swap">
+{% endblock %}
+<link rel="stylesheet" href="/static/css/store.css">
+{% if store %}<meta name="theme-color" content="{{ {'northwind-audio': '#0e0f11', 'juniper-home': '#faf6ef', 'kestrel-outdoors': '#1d2720'}.get(store.id, '#ffffff') }}">{% endif %}
+{% block head %}{% endblock %}
 </head>
-<body>
-<div class="demo-banner">Fictional store in the Snapback demo environment — not a real retailer.</div>
-<header>
-  {% if store %}
-  <a class="logo" href="/s/{{ store.id }}">{{ store.name }}</a><span class="tag">{{ store.tagline }}</span>
-  <nav><a href="/s/{{ store.id }}">Shop</a><a href="/s/{{ store.id }}/returns">Returns</a><a href="/s/{{ store.id }}/policy">Policy</a></nav>
-  {% else %}
-  <a class="logo" href="/">Mock world</a><span class="tag">stores · inbox · bank · admin</span>
-  <nav><a href="/inbox">Inbox</a><a href="/bank">Bank</a><a href="/admin">Admin</a></nav>
-  {% endif %}
-</header>
+{% macro wordmark(sid, name) -%}
+  {%- if sid == "northwind-audio" -%}
+    <span class="wordmark wm-northwind"><span class="wm-main">NORTHWIND</span><span class="wm-sub">AUDIO</span></span>
+  {%- elif sid == "juniper-home" -%}
+    <span class="wordmark wm-juniper"><svg class="sprig" viewBox="0 0 18 22" aria-hidden="true"><path d="M9 21V6" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><path d="M9 10C5 9.5 3 7 3 3.5c4 0 6 2.6 6 6.5zm0 5c4-.5 6-3 6-6.5-4 0-6 2.6-6 6.5z" fill="currentColor"/><circle cx="5" cy="15" r="1.8" fill="#c99a52"/></svg>juniper<span class="wm-sub">home</span></span>
+  {%- elif sid == "kestrel-outdoors" -%}
+    <span class="wordmark wm-kestrel"><svg class="mark" viewBox="0 0 64 64" aria-hidden="true"><path d="M4 50l18-26 9 11 9-16 20 31z" fill="#f2efe6"/><path d="M31 35l9-16 6 9-7-2z" fill="#d4622a"/></svg><span class="wm-main">Kestrel</span><span class="wm-sub">Outdoors</span></span>
+  {%- elif sid == "larkspur-supply" -%}
+    <span class="wordmark wm-larkspur"><em>Larkspur</em>&nbsp;<span style="font-size:13px;letter-spacing:.2em;font-style:normal">SUPPLY CO.</span></span>
+  {%- else -%}
+    <span class="wordmark">{{ name }}</span>
+  {%- endif -%}
+{%- endmacro %}
+{% set NAV = {
+  "northwind-audio": [("headphones", "Headphones"), ("earbuds", "Earbuds"), ("speakers", "Speakers"), ("accessories", "Accessories")],
+  "juniper-home": [("blender", "Blenders"), ("kettle", "Kettles"), ("toaster", "Toasters"), ("cookware", "Cookware"), ("textiles", "Textiles")],
+  "kestrel-outdoors": [("jacket", "Rain shells"), ("tent", "Tents"), ("bottle", "Hydration"), ("apparel", "Apparel")],
+  "larkspur-supply": [("lamp", "Lighting")]} %}
+<body class="{{ 'theme-' ~ store.id if store else 'theme-mock' }}{% block body_class %}{% endblock %}">
+{% if store %}
+{% set r = store.merchant_rules %}
+{% set wd = r.warranty_days %}
+{% set warranty = "Lifetime guarantee" if wd >= 3650 else ((wd // 365) ~ "-year warranty" if wd >= 365 else "") %}
+<div class="announce no-print"><div class="wrap">
+  <span>Free standard shipping</span><span class="sep">·</span>
+  <span>{{ r.return_window_days }}-day returns, <a href="/s/{{ store.id }}/returns">start one online</a></span>
+  {% if warranty %}<span class="sep">·</span><span>{{ warranty }}</span>{% endif %}
+  {% if r.price_adjustment_days %}<span class="sep">·</span><span>{{ r.price_adjustment_days }}-day price protection</span>{% endif %}
+</div></div>
+<header class="site-header"><div class="wrap">
+  <a href="/s/{{ store.id }}" aria-label="{{ store.name }} home" style="text-decoration:none">{{ wordmark(store.id, store.name) }}</a>
+  <nav class="site-nav" aria-label="Shop">
+    {% for c, lbl in NAV.get(store.id, []) %}<a href="/s/{{ store.id }}#c-{{ c }}">{{ lbl }}</a>{% endfor %}
+    <a href="/s/{{ store.id }}/returns">Returns</a>
+    {% if store.has_policy %}<a href="/s/{{ store.id }}/policy">Help</a>{% endif %}
+  </nav>
+  <div class="utils">
+    <a href="/s/{{ store.id }}#shop" aria-label="Search"><svg viewBox="0 0 24 24"><circle cx="11" cy="11" r="7"/><path d="M20 20l-4-4"/></svg></a>
+    <a href="/s/{{ store.id }}/returns"><svg viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg><span class="hide-sm">Orders</span></a>
+    <a href="/s/{{ store.id }}#shop" aria-label="Bag"><svg viewBox="0 0 24 24"><path d="M5 8h14l-1 13H6z"/><path d="M9 8V6a3 3 0 0 1 6 0v2"/></svg><span class="bag-count">0</span></a>
+  </div>
+</div></header>
+{% else %}
+<div class="mock-note no-print">Simulated outside world for the Snapback demo: fictional stores, the user's inbox and bank ledger.</div>
+<header class="site-header mock-header"><div class="wrap">
+  <a href="/" style="text-decoration:none"><span class="wordmark wm-mock">Mock world</span></a>
+  <nav class="site-nav"><a href="/">Stores</a><a href="/inbox">Inbox</a><a href="/bank">Bank</a><a href="/calendar">Calendar</a><a href="/admin">Admin</a></nav>
+  <div class="utils muted">{{ now.strftime("%b %-d, %H:%M") }} UTC</div>
+</div></header>
+{% endif %}
+
 <main>{% block body %}{% endblock %}</main>
+
+{% if store %}
+{% set BLURB = {
+  "northwind-audio": "Considered audio, engineered in-house and built to last. Product news and firmware notes, a few times a year.",
+  "juniper-home": "Recipes, care guides and the occasional sale. Twice a month, never more.",
+  "kestrel-outdoors": "Trip reports, gear care and early access to the Basecamp sale.",
+  "larkspur-supply": "Small-batch desk goods, made in short runs."} %}
+<footer class="site-footer no-print"><div class="wrap">
+  <div class="footer-top">
+    <div class="footer-news">
+      <a href="/s/{{ store.id }}" style="text-decoration:none;color:var(--footer-head)">{{ wordmark(store.id, store.name) }}</a>
+      <p style="margin-top:18px">{{ BLURB.get(store.id, store.tagline) }}</p>
+      <form onsubmit="this.querySelector('button').textContent='Subscribed ✓';return false"><input type="email" placeholder="Email address" aria-label="Email address"><button class="btn small" type="submit">Sign up</button></form>
+    </div>
+    <div><h4>Shop</h4><ul>
+      {% for c, lbl in NAV.get(store.id, []) %}<li><a href="/s/{{ store.id }}#c-{{ c }}">{{ lbl }}</a></li>{% endfor %}
+      <li><a href="/s/{{ store.id }}#shop">All products</a></li>
+    </ul></div>
+    <div><h4>Help</h4><ul>
+      <li><a href="/s/{{ store.id }}/returns">Start a return</a></li>
+      <li><a href="/s/{{ store.id }}/returns">Order status</a></li>
+      {% if store.has_policy %}<li><a href="/s/{{ store.id }}/policy">Returns &amp; warranty policy</a></li>
+      {% if r.price_adjustment_days %}<li><a href="/s/{{ store.id }}/policy#price-adjustments">Price adjustments</a></li>{% endif %}{% endif %}
+      {% if store.id == "northwind-audio" %}<li><a href="/s/{{ store.id }}/reviews">Review summaries</a></li>{% endif %}
+      <li><a href="mailto:{{ store.support_email }}">{{ store.support_email }}</a></li>
+    </ul></div>
+    <div><h4>Company</h4><ul>
+      <li><a href="/s/{{ store.id }}#story">Our story</a></li>
+      <li><a href="/s/{{ store.id }}#story">Journal</a></li>
+      <li><a href="/s/{{ store.id }}#story">Sustainability</a></li>
+      <li><a href="/s/{{ store.id }}#story">Careers</a></li>
+    </ul>
+    <a class="btn small footer-start-return" style="background:var(--footer-head);color:var(--footer-bg);border-color:var(--footer-head)" href="/s/{{ store.id }}/returns">Start a return</a></div>
+  </div>
+  <div class="footer-bottom">
+    <span>© {{ now.year }} {{ store.name }}</span>
+    <span class="links"><a href="/s/{{ store.id }}#story">Privacy</a><a href="/s/{{ store.id }}#story">Terms</a><a href="/s/{{ store.id }}#story">Accessibility</a></span>
+    <span class="right"><span class="demo-tag" title="Fictional store in the Snapback demo environment. Not a real retailer.">Demo store</span></span>
+  </div>
+</div></footer>
+{% endif %}
+{% block scripts %}{% endblock %}
 </body>
 </html>
