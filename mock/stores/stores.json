@@ -1,0 +1,74 @@
+[
+  {
+    "id": "northwind-audio",
+    "name": "Northwind Audio",
+    "tagline": "Sound, engineered.",
+    "color": "#1f3a5f",
+    "accent": "#f2a900",
+    "order_prefix": "NWA",
+    "orders_email": "orders@northwind-audio.example",
+    "support_email": "care@northwind-audio.example",
+    "has_policy": true,
+    "merchant_rules": {
+      "return_window_days": 30,
+      "restocking_pct_non_defective": 15,
+      "return_shipping_non_defective": 0,
+      "price_adjustment_days": 14,
+      "warranty_days": 365
+    }
+  },
+  {
+    "id": "juniper-home",
+    "name": "Juniper Home",
+    "tagline": "Good things for the kitchen and home.",
+    "color": "#2f5d46",
+    "accent": "#e8c27a",
+    "order_prefix": "JNH",
+    "orders_email": "hello@juniper-home.example",
+    "support_email": "help@juniper-home.example",
+    "has_policy": true,
+    "merchant_rules": {
+      "return_window_days": 30,
+      "restocking_pct_non_defective": 0,
+      "return_shipping_non_defective": 7.95,
+      "price_adjustment_days": 14,
+      "warranty_days": 730
+    }
+  },
+  {
+    "id": "kestrel-outdoors",
+    "name": "Kestrel Outdoors",
+    "tagline": "Built for the long way around.",
+    "color": "#7a3414",
+    "accent": "#d9c7a3",
+    "order_prefix": "KSO",
+    "orders_email": "orders@kestrel-outdoors.example",
+    "support_email": "basecamp@kestrel-outdoors.example",
+    "has_policy": true,
+    "merchant_rules": {
+      "return_window_days": 45,
+      "restocking_pct_non_defective": 0,
+      "return_shipping_non_defective": 6.95,
+      "price_adjustment_days": 0,
+      "warranty_days": 36500
+    }
+  },
+  {
+    "id": "larkspur-supply",
+    "name": "Larkspur Supply Co.",
+    "tagline": "Small-batch desk goods.",
+    "color": "#4b3f72",
+    "accent": "#c9b8f0",
+    "order_prefix": "LSC",
+    "orders_email": "receipts@larkspur-supply.example",
+    "support_email": "help@larkspur-supply.example",
+    "has_policy": false,
+    "merchant_rules": {
+      "return_window_days": 14,
+      "restocking_pct_non_defective": 0,
+      "return_shipping_non_defective": 0,
+      "price_adjustment_days": 0,
+      "warranty_days": 0
+    }
+  }
+]

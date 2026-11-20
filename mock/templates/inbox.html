@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block title %}Inbox{% endblock %}{% block body %}
+<div class="card"><h2>Inbox — alex.moreno@mail.example</h2>
+<table>{% for e in emails %}<tr><td class="muted">{{ e.received_at[:16]|replace("T"," ") }}</td><td>{{ e["from"] }}</td><td><a href="/inbox/{{ e.email_id }}">{{ e.subject }}</a></td></tr>{% endfor %}</table></div>
+{% endblock %}

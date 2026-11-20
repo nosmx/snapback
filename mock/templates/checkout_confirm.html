@@ -1,0 +1,10 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" data-testid="order-confirmation">
+<h2 class="ok">{% if already %}Order already placed{% else %}Order placed{% endif %}</h2>
+<table>
+<tr><th>Order number</th><td data-testid="new-order-no">{{ purchase.order_no }}</td></tr>
+<tr><th>Item</th><td>{{ item.name }} ({{ purchase.sku }})</td></tr>
+<tr><th>Charged</th><td data-testid="charged">${{ "%.2f"|format(purchase.price) }}</td></tr>
+<tr><th>Ship to ZIP</th><td>{{ purchase.ship_zip }}</td></tr>
+</table></div>
+{% endblock %}

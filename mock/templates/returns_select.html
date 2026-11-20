@@ -1,0 +1,27 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" data-testid="order-found">
+<h2>Order {{ order.order_no }}</h2>
+<div style="display:flex;gap:18px;align-items:center">
+  <img class="thumb" style="width:140px" src="/static/products/{{ image }}" alt="">
+  <div><strong>{{ order.name }}</strong><br>${{ "%.2f"|format(order.price) }} · delivered {{ order.delivered_at[:10] }}<br>
+  <span class="muted">Return by {{ order.return_by }}</span>
+  {% if window_open %}<span class="pill">Eligible for return</span>{% else %}<span class="err">Return window closed</span>{% endif %}</div>
+</div>
+{% if window_open %}
+<form method="post" action="/s/{{ store.id }}/returns/submit">
+  <input type="hidden" name="order_no" value="{{ order.order_no }}"><input type="hidden" name="zip_code" value="{{ order.ship_zip }}">
+  <input type="hidden" name="idempotency_key" value=""><input type="hidden" name="verified_by" value="">
+  <label for="reason">Reason for return</label>
+  <select id="reason" name="reason" data-testid="reason" required>
+    <option value="">Select a reason</option>
+    {% for v, t in reasons %}<option value="{{ v }}">{{ t }}</option>{% endfor %}
+  </select>
+  <label for="refund_method">Refund to</label>
+  <select id="refund_method" name="refund_method" data-testid="refund-method">
+    <option value="original_payment">Original payment method</option><option value="store_credit">Store credit</option>
+  </select>
+  <p><button class="btn" type="submit" data-testid="submit-return">Submit return</button></p>
+</form>
+{% endif %}
+</div>
+{% endblock %}

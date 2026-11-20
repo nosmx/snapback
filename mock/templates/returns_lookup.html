@@ -1,0 +1,8 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h2>Start a return</h2><p class="muted">No account needed. Enter your order number and the ZIP code it shipped to.</p>
+<form method="post" action="/s/{{ store.id }}/returns/lookup">
+  <label for="order_no">Order number</label><input id="order_no" name="order_no" data-testid="order-no" required>
+  <label for="zip_code">Shipping ZIP code</label><input id="zip_code" name="zip_code" data-testid="zip" required>
+  <p><button class="btn" type="submit" data-testid="lookup">Find my order</button></p>
+</form></div>
+{% endblock %}

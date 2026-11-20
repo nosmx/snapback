@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block title %}Demo admin{% endblock %}{% block body %}
+<div class="card"><h2>Demo controls</h2>
+<p class="muted">World time: {{ now.strftime("%Y-%m-%d %H:%M") }} UTC · clock offset {{ world.clock_offset_hours }}h · refund delay {{ world.refund_delay_seconds }}s · fail next submit: <strong>{{ world.fail_next_submit }}</strong></p>
+<form method="post" action="/admin/reset" style="display:inline"><input type="hidden" name="stage" value="yes"><button class="btn">Reset + stage demo</button></form>
+<form method="post" action="/admin/reset" style="display:inline"><input type="hidden" name="stage" value="no"><button class="btn secondary">Reset (no staging)</button></form>
+<form method="post" action="/admin/fail-next" style="display:inline"><button class="btn secondary">Toggle fail next portal submit</button></form>
+</div>
+<div class="card"><h3>Set price</h3><form method="post" action="/admin/price">
+<select name="sku">{% for sku, c in catalog.items() %}<option value="{{ sku }}">{{ sku }} — {{ c.name }} (now ${{ "%.2f"|format(prices.get(sku, c.price)) }})</option>{% endfor %}</select>
+<input name="price" type="number" step="0.01" placeholder="new price" style="max-width:140px"> <button class="btn">Set</button></form></div>
+<div class="card"><h3>Carrier status</h3><form method="post" action="/admin/carrier">
+<select name="tracking">{% for o in orders %}<option value="{{ o.tracking }}">{{ o.tracking }} — {{ o.order_no }} {{ o.name }} ({{ o.carrier_status }})</option>{% endfor %}</select>
+<select name="status" style="max-width:160px"><option>lost</option><option>exception</option><option>in_transit</option><option>delivered</option></select> <button class="btn">Set</button></form></div>
+<div class="card"><h3>Clock + refunds</h3>
+<form method="post" action="/admin/clock" style="display:inline"><input name="hours" type="number" step="1" value="24" style="max-width:100px"> <button class="btn">Advance clock (hours)</button></form>
+<form method="post" action="/admin/refund-delay" style="display:inline;margin-left:16px"><input name="seconds" type="number" value="{{ world.refund_delay_seconds }}" style="max-width:100px"> <button class="btn">Set refund delay (s)</button></form></div>
+{% endblock %}

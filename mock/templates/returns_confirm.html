@@ -1,0 +1,17 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" data-testid="return-confirmation">
+{% if ret %}
+<h2 class="ok">{% if already %}Return already on file{% else %}Return approved{% endif %}</h2>
+<table>
+<tr><th>Return authorization</th><td data-testid="rma">{{ ret.rma }}</td></tr>
+<tr><th>Order</th><td data-testid="order-no">{{ ret.order_no }}</td></tr>
+<tr><th>Reason</th><td>{{ ret.reason }}</td></tr>
+<tr><th>Restocking fee</th><td>${{ "%.2f"|format(ret.restocking_fee) }}</td></tr>
+<tr><th>Return shipping</th><td>${{ "%.2f"|format(ret.return_shipping_fee) }}</td></tr>
+<tr><th>Refund</th><td data-testid="refund-amount">${{ "%.2f"|format(ret.refund_amount) }} to {{ ret.refund_method|replace("_", " ") }}</td></tr>
+<tr><th>Drop off by</th><td data-testid="drop-off-by">{{ ret.drop_off_by }}</td></tr>
+</table>
+<p><a class="btn" href="{{ ret.label_url }}" data-testid="label-link">Print return label</a></p>
+{% else %}<h2>This order already has a return in progress.</h2>{% endif %}
+</div>
+{% endblock %}

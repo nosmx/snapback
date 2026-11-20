@@ -1,0 +1,7 @@
+{% extends "base.html" %}{% block title %}{{ email.subject }}{% endblock %}{% block body %}
+<div class="card" data-testid="email">
+<div class="muted">From: {{ email["from"] }}<br>To: {{ email.to }}<br>Date: {{ email.received_at|replace("T"," ") }}</div>
+<h2>{{ email.subject }}</h2>
+{% if email.image_url %}<img class="thumb" style="width:220px" src="{{ email.image_url }}" alt="">{% endif %}
+<pre>{{ email.body_text }}</pre></div>
+{% endblock %}

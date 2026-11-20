@@ -1,0 +1,16 @@
+{
+  "demo_broken_headphones.png": {
+    "ref": "NWA-ARC-ANC",
+    "similar": {
+      "NWA-STUDIO-MH": 0.45,
+      "NWA-PULSE-EB": 0.2
+    }
+  },
+  "demo_broken_headphones.jpg": {
+    "ref": "NWA-ARC-ANC",
+    "similar": {
+      "NWA-STUDIO-MH": 0.45,
+      "NWA-PULSE-EB": 0.2
+    }
+  }
+}

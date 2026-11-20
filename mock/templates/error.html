@@ -1,0 +1,4 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" data-testid="error"><h2 class="err">{{ title }}</h2><p data-testid="error-message">{{ message }}</p>
+{% if store %}<p><a href="/s/{{ store.id }}/returns">Back</a></p>{% endif %}</div>
+{% endblock %}

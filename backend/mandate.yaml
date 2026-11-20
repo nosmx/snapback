@@ -1,0 +1,18 @@
+# Standing rules (generalcontext.md §4). Verified with Persona when created or changed.
+mandate:
+  user_id: u_001
+  verified_by: persona
+  auto_return_defective: true
+  auto_missing_package_claim: true
+  price_drop:
+    auto_adjust_minor: true
+    major_if: { min_percent: 15, min_usd: 20 }   # either threshold -> major -> ask the user
+  return_window_alert_days: 3
+  replacement:
+    enabled: true
+    strategy: same_item_unless_poor_reviews      # mandate is authoritative over the Statsig variant
+    poor_review_threshold: 3.5
+    max_extra_spend_usd: 30
+  require_approval_over_usd: 200                 # gross charge of any new order
+  refund_method: original_payment
+  allowed_stores: [northwind-audio, juniper-home, kestrel-outdoors]

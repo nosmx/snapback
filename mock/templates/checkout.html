@@ -1,0 +1,15 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h2>Checkout</h2>
+<div style="display:flex;gap:18px;align-items:center">
+  <img class="thumb" style="width:140px" src="/static/products/{{ image }}" alt="">
+  <div><strong data-testid="item-name">{{ item.name }}</strong><br><span data-testid="price">${{ "%.2f"|format(price) }}</span>
+  {% if not item.in_stock %}<br><span class="err">Out of stock</span>{% endif %}</div>
+</div>
+<form method="post" action="/s/{{ store.id }}/checkout">
+  <input type="hidden" name="sku" value="{{ item.sku }}">
+  <input type="hidden" name="idempotency_key" value=""><input type="hidden" name="verified_by" value=""><input type="hidden" name="max_price" value="">
+  <label for="ship_zip">Shipping ZIP code</label><input id="ship_zip" name="ship_zip" data-testid="ship-zip" required>
+  <label>Payment</label><div class="muted">Saved payment method (mock wallet). Card details are never shared with agents.</div>
+  <p><button class="btn" type="submit" data-testid="place-order">Place order</button></p>
+</form></div>
+{% endblock %}

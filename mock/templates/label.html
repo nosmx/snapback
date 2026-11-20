@@ -1,0 +1,11 @@
+{% extends "base.html" %}{% block body %}
+<div class="card" style="border:3px dashed #222" data-testid="return-label">
+<h2>PREPAID RETURN LABEL</h2><pre>
+FROM: Alex Moreno, San Francisco, CA
+TO:   {{ store.name }} Returns Center
+RMA:  {{ ret.rma }}
+ORDER: {{ ret.order_no }}   SKU: {{ ret.sku }}
+DROP OFF BY: {{ ret.drop_off_by }}
+||| |||| | ||| || |||| | || ||| |
+</pre></div>
+{% endblock %}

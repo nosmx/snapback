@@ -1,0 +1,5 @@
+{% extends "base.html" %}{% block body %}
+<div class="card"><h2>Stores</h2>
+<ul>{% for s in stores %}<li><a href="/s/{{ s.id }}">{{ s.name }}</a> — <a href="/s/{{ s.id }}/returns">returns portal</a>{% if s.has_policy %} · <a href="/s/{{ s.id }}/policy">policy</a>{% endif %}</li>{% endfor %}</ul></div>
+<div class="card"><a href="/inbox">User inbox</a> · <a href="/bank">User bank ledger</a> · <a href="/admin">Demo admin</a></div>
+{% endblock %}
