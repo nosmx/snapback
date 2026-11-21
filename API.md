@@ -263,6 +263,8 @@ es.onmessage = (e) => { const ev = JSON.parse(e.data); if (ev.type === "audit") 
     "pending_approvals": 2, "audit_chain": { "ok": true, "entries": 43, "broken_at_seq": null },
     "orders": 16, "catalog": 21, "db_backend": "singlestore" }
   ```
+- **`POST /api/demo/reset` finishes staging before it responds** (typically 12–14 s). A second press while a reset is staging waits for it and returns the same result, with `"joined": true`. On a failure it returns `{ "ok": false, "error": "…" }` instead of an empty 500.
+- **`GET /api/demo/status`** → `{ "ready": true, "staging": false, "done": 3, "pending_approvals": 2, "expected": { "done": 3, "pending_approvals": 2 }, "staging_for_s": null }`. For the UI: show "Resetting…" while `ready` is false (`staging` is true during a reset), then refresh the feed. Staging never opens the visible browser or creates Apple Calendar events.
 - **`POST /api/demo/trigger`** with `{ "kind": "major_price_drop" | "return_window" | "tamper", "price": 85 }`:
   - `major_price_drop`: sets the Vortex Blender to `price` (default $89) and runs detection → `{ "ok": true, "task_id": "tsk_…" }`. This is idempotent per price level, so a new price creates a new card.
   - `return_window`: detection for the Kestrel jacket (3 days left) → `{ "ok": true, "task_id": "tsk_…" }`

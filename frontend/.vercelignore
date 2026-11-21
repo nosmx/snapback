@@ -1,0 +1,6 @@
+# Vercel builds the app itself; don't upload local build output or logs.
+dist
+*.log
+# Local credentials (e.g. the VERCEL_OIDC_TOKEN that `vercel link` writes) never leave this machine.
+.env*
+.vercel

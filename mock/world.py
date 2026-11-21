@@ -58,6 +58,13 @@ def now() -> datetime:
     return datetime.utcnow() + timedelta(hours=float(world().get("clock_offset_hours", 0)))
 
 
+def local_now() -> datetime:
+    """The demo's calendar day is Pacific time, the same as the backend's clock.today() and the
+    merchant's _today(). Seeded dates ("N days ago") must count from this, not from the UTC date,
+    or after 4 PM PT every seeded date shifts a day later (e.g. the return-window card vanishes)."""
+    return now() - timedelta(hours=8)
+
+
 def merchant() -> Dict[str, Any]:
     return _read(STATE / "merchant.json", {"orders": {}, "returns": [], "purchases": [], "claims": [], "adjustments": []})
 
@@ -459,7 +466,7 @@ def reset_world(stage_demo: bool = True, refund_delay_seconds: int = 10) -> Dict
         customer = spec["customer"]
         cat = catalog()
         st = stores()
-        today = now()
+        today = local_now()      # PT calendar day (see local_now)
 
         save_prices({sku: item["price"] for sku, item in cat.items()})
         m = {"orders": {}, "returns": [], "purchases": [], "claims": [], "adjustments": []}

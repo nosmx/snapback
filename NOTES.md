@@ -69,5 +69,16 @@ Conflicts between `generalcontext.md` and sponsor docs, plus build decisions. Sp
 - **Fixed: a staged-reset race.** The scheduled 30 s loop pass grabbed `LOOP_LOCK` the moment the re-seed released it, so the reset's own staging pass queued behind it (two ~3 s passes back to back), and the staged refunds landed after the 19 s cutoff. `background_loop.quiet()` now makes scheduled passes skip while a reset is staging. 5 resets in a row: 11.4–13.1 s.
 - **Fixed:** continuation summary chunks were hard-labeled "5. Policy summary", which went stale once the summary moved to §6. They're now "Policy summary (continued)".
 
+## Block 6: reset reliability
+- **Root cause of the missing return-window card after reset:** the mock world seeded "N days ago" dates from the **UTC** date, while the backend (`clock.today()`) and the merchant (`_today()`) count days in **PT**.
+  - After 4 PM PT, UTC is already tomorrow, so every seeded date shifted a day later.
+  - The Kestrel jacket's deadline became Nov 24 instead of Nov 23 (4 days left, past the 3-day alert threshold), so the card never appeared, and the reset waited 19 s and returned `ok: false`.
+  - Fix: `world.local_now()` (the PT day) is the base for seeded dates.
+  - The "completely empty feed" reported from the UI was a separate, simpler cause: the dev servers weren't running at all (nothing on :8000/:8001/:5173).
+- **Reset hardening:**
+  - `backend/demo.py` holds a reset lock (a second press joins the running reset) and a staging flag (browser forced headless, reminders forced to the mock calendar).
+  - `GET /api/demo/status` exposes `ready`.
+  - Reset errors are returned as JSON.
+
 ## Sponsor doc conflicts
 - SIE `api.md` documents the self-hosted server (raw slashes in model paths, msgpack default). Hosted needs URL-encoded model IDs and JSON. We follow the hosted examples.

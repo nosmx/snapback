@@ -24,6 +24,7 @@ from backend.integrations.singlestore import COLUMNS, db
 from backend.triggers import background_loop
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(name)s %(levelname)s %(message)s")
+log = logging.getLogger("snapback.api")
 
 app = FastAPI(title="Snapback")
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_methods=["*"], allow_headers=["*"],
@@ -268,6 +269,41 @@ STAGED = ("price_drop_minor", "missing_package", "chat")
 
 @app.post("/api/demo/reset")
 def demo_reset(stage: bool = True, wait_s: float = 19.0):
+    """Reset + stage, finishing BEFORE it responds (see _demo_reset). A second press while a reset is
+    staging joins it and returns the same result, so pressing twice can't leave a half-staged demo."""
+    from backend import demo
+    if not demo.RESET_LOCK.acquire(blocking=False):
+        demo.RESET_LOCK.acquire(timeout=wait_s + 30)      # wait for the running reset
+        demo.RESET_LOCK.release()
+        return {**(demo.last_result() or {"ok": False}), "joined": True}
+    demo.begin()
+    result: Dict[str, Any] = {"ok": False, "error": "reset failed"}
+    try:
+        result = _demo_reset(stage, wait_s)
+        return result
+    except Exception as e:  # report it instead of an empty 500 so the UI can say what went wrong
+        log.exception("demo reset failed")
+        result = {"ok": False, "error": f"{type(e).__name__}: {e}"[:300]}
+        return result
+    finally:
+        demo.end(result)
+        demo.RESET_LOCK.release()
+
+
+@app.get("/api/demo/status")
+def demo_status():
+    """For the UI's "Resetting…" state: ready once staging finished with 3 done tasks + 2 pending cards."""
+    from backend import demo
+    tasks = db().select("tasks")
+    done = [t for t in tasks if t["trigger_type"] in STAGED and t["status"] == "done"]
+    pending = [a for a in db().select("approvals") if not a.get("choice")]
+    staging = demo.is_staging()
+    return {"ready": (not staging) and len(done) >= 3 and len(pending) >= 2, "staging": staging,
+            "done": len(done), "pending_approvals": len(pending), "expected": {"done": 3, "pending_approvals": 2},
+            "staging_for_s": round(time.time() - demo.started_at(), 1) if staging and demo.started_at() else None}
+
+
+def _demo_reset(stage: bool, wait_s: float) -> Dict[str, Any]:
     """Reset the world and re-seed, then stage the demo by RUNNING the real flows: the background
     loop (minor price drop -> adjustment, lost package -> claim, major drop card, return-window card)
     and a chat message ("my old Vortex Pro blender died" -> warranty claim). Returns once the three

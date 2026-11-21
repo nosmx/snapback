@@ -197,7 +197,10 @@ def add_dropoff_reminder(task_id: str, *, item: str, store_name: str, rma: str, 
         "task_url": task_url, "model": "ics", "return_method": method, "location": location,
     }
     attempts: List[Dict[str, Any]] = []
+    from backend import demo
     mode = current_mode()
+    if demo.is_staging() and mode == "auto":
+        mode = "mock"          # staged demo data never creates real Calendar events
     if mode == "auto":
         try:
             out.update(_apple(title, notes, location, start, task_id, settings.calendar_show),

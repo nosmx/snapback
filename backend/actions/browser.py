@@ -18,7 +18,8 @@ _lock = threading.Lock()
 def portal_page() -> Iterator["object"]:
     from playwright.sync_api import sync_playwright
 
-    headless = settings.playwright_headless
+    from backend import demo
+    headless = settings.playwright_headless or demo.is_staging()   # staging never opens a visible window
     with _lock:
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=headless, slow_mo=0 if headless else settings.playwright_slow_mo_ms,
